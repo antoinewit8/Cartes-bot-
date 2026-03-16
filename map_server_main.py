@@ -206,7 +206,9 @@ async def recalculate_drag(data: RecalcDragRequest):
             headers={"apiKey": PTV_API_KEY},
             timeout=30,
         )
-
+    print(f"🔍 PTV status: {resp.status_code}")
+    print(f"🔍 PTV URL: {resp.url}")
+    print(f"🔍 PTV response: {resp.text[:500]}")
     if resp.status_code != 200:
         raise HTTPException(502, f"PTV error {resp.status_code}: {resp.text[:500]}")
 
