@@ -1,0 +1,1 @@
+web: python map_server_main.py
