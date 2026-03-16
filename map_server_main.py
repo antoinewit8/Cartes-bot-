@@ -28,12 +28,33 @@ MAP_SERVER_URL = os.environ.get("MAP_SERVER_URL", "http://localhost:8000")
 # ── Helpers stockage ──────────────────────────────────────────────────────────
 
 def load_routes() -> dict:
+    # 1. Si on est connecté à Firebase, on lit depuis le cloud
+    if FIREBASE_URL:
+        try:
+            r = httpx.get(f"{FIREBASE_URL}/routes.json", timeout=10)
+            if r.status_code == 200 and r.json():
+                return r.json()
+        except Exception as e:
+            print(f"Erreur lecture Firebase : {e}")
+        return {}
+        
+    # 2. Sinon, on lit le fichier local (pour tes tests)
     if not os.path.exists(ROUTES_FILE):
         return {}
     with open(ROUTES_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def save_routes(data: dict):
+    # 1. Si on est connecté à Firebase, on sauvegarde dans le cloud
+    if FIREBASE_URL:
+        try:
+            # On utilise PATCH pour ajouter les nouveaux trajets sans écraser les anciens
+            httpx.patch(f"{FIREBASE_URL}/routes.json", json=data, timeout=10)
+        except Exception as e:
+            print(f"Erreur écriture Firebase : {e}")
+        return
+        
+    # 2. Sinon, on sauvegarde en local
     with open(ROUTES_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
