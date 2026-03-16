@@ -36,7 +36,7 @@ def create_route_url(
         r = httpx.post(
             f"{MAP_SERVER_URL}/api/create_route",
             json=payload,
-            timeout=15,
+            timeout=60,
         )
         r.raise_for_status()
         url = r.json().get("url", "")
