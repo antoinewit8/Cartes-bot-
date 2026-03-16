@@ -24,7 +24,7 @@ os.makedirs("data", exist_ok=True)
 PTV_API_KEY = os.environ.get("PTV_API_KEY", "")
 MAP_SERVER_URL = os.environ.get("MAP_SERVER_URL", "http://localhost:8000")
 
-
+FIREBASE_URL = os.environ.get("FIREBASE_URL", "").rstrip("/")
 # ── Helpers stockage ──────────────────────────────────────────────────────────
 
 def load_routes() -> dict:
