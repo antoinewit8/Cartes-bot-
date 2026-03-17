@@ -261,6 +261,12 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
 #  ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ── Health check (warm-up Render) ────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 # ── Créer une route (appelé par main_km.py) ──────────────────────────────────
 
 @app.post("/api/create_route")
