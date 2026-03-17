@@ -1,496 +1,169 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Carte Trajet — {{ route.origin }} → {{ route.dest }}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trajet: {{ route.origin }} → {{ route.dest }}</title>
+    
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
 
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
-    body {
-      font-family: 'Segoe UI', sans-serif;
-      background: #1a1a2e;
-      color: #eee;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }
-
-    #header {
-      background: #16213e;
-      padding: 12px 20px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 2px solid #0f3460;
-      flex-shrink: 0;
-    }
-
-    #header h1 {
-      font-size: 1rem;
-      font-weight: 600;
-      color: #e94560;
-      letter-spacing: 0.5px;
-    }
-
-    #header h1 span { color: #fff; }
-
-    .badge {
-      background: #0f3460;
-      border-radius: 20px;
-      padding: 4px 12px;
-      font-size: 0.8rem;
-      color: #a8dadc;
-      margin-left: 8px;
-    }
-
-    #infobar {
-      background: #16213e;
-      padding: 8px 20px;
-      display: flex;
-      gap: 24px;
-      flex-wrap: wrap;
-      border-bottom: 1px solid #0f3460;
-      flex-shrink: 0;
-    }
-
-    .info-item {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.85rem;
-    }
-
-    .info-item .icon { font-size: 1rem; }
-    .info-item .label { color: #888; }
-    .info-item .value { color: #fff; font-weight: 600; }
-
-    #main {
-      display: flex;
-      flex: 1;
-      overflow: hidden;
-    }
-
-    #map { flex: 1; z-index: 1; }
-
-    #panel {
-      width: 280px;
-      background: #16213e;
-      border-left: 1px solid #0f3460;
-      display: flex;
-      flex-direction: column;
-      overflow-y: auto;
-      flex-shrink: 0;
-    }
-
-    #panel h2 {
-      font-size: 0.85rem;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      color: #a8dadc;
-      padding: 16px 16px 8px;
-      border-bottom: 1px solid #0f3460;
-    }
-
-    .option-group {
-      padding: 12px 16px;
-      border-bottom: 1px solid #0f3460;
-    }
-
-    .option-group label {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 0.85rem;
-      cursor: pointer;
-      color: #ccc;
-    }
-
-    .option-group input[type="checkbox"] {
-      width: 16px;
-      height: 16px;
-      accent-color: #e94560;
-    }
-
-    .btn-recalc {
-      margin: 12px 16px;
-      background: #e94560;
-      border: none;
-      color: #fff;
-      padding: 10px;
-      border-radius: 6px;
-      font-size: 0.85rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s;
-      width: calc(100% - 32px);
-    }
-
-    .btn-recalc:hover { background: #c73652; }
-    .btn-recalc:disabled { background: #555; cursor: not-allowed; }
-
-    #recalc-status {
-      padding: 0 16px 12px;
-      font-size: 0.78rem;
-      color: #a8dadc;
-      min-height: 20px;
-    }
-
-    #result-box {
-      margin: 0 16px 12px;
-      background: #0f3460;
-      border-radius: 6px;
-      padding: 10px;
-      font-size: 0.82rem;
-      display: none;
-    }
-
-    #result-box .r-line {
-      display: flex;
-      justify-content: space-between;
-      padding: 2px 0;
-    }
-
-    #result-box .r-line span:last-child { color: #fff; font-weight: 600; }
-
-    #footer {
-      background: #16213e;
-      padding: 6px 20px;
-      font-size: 0.72rem;
-      color: #555;
-      border-top: 1px solid #0f3460;
-      flex-shrink: 0;
-      text-align: right;
-    }
-
-    #loader {
-      display: none;
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.5);
-      z-index: 9999;
-      justify-content: center;
-      align-items: center;
-      font-size: 1.2rem;
-      color: #e94560;
-    }
-
-    .drag-marker {
-      width: 14px;
-      height: 14px;
-      background: #ffd700;
-      border: 2px solid #fff;
-      border-radius: 50%;
-      cursor: grab;
-      box-shadow: 0 0 6px rgba(255,215,0,0.6);
-    }
-
-    .drag-marker:active { cursor: grabbing; }
-
-    .drag-hint {
-      background: #0f3460;
-      color: #a8dadc;
-      padding: 8px 16px;
-      font-size: 0.78rem;
-      border-bottom: 1px solid #0f3460;
-    }
-  </style>
+    <style>
+        body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        #info-box {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            z-index: 10;
+            max-width: 300px;
+        }
+        h3 { margin: 0 0 10px 0; font-size: 16px; color: #333; }
+        p { margin: 5px 0; font-size: 14px; color: #555; }
+        .badge { font-weight: bold; color: #007cbf; }
+    </style>
 </head>
 <body>
 
-  <div id="header">
-    <h1>🗺️ <span>{{ route.origin }}</span> → <span>{{ route.dest }}</span></h1>
-    <div>
-      <span class="badge">{{ route.distance_km }} km</span>
-      <span class="badge">{{ route.duration_h }} h</span>
-      {% if route.prix_peage %}
-        <span class="badge">💰 {{ route.prix_peage }} €</span>
-      {% endif %}
+    <div id="info-box">
+        <h3>{{ route.origin }} ➔ {{ route.dest }}</h3>
+        <p>Distance : <span class="badge" id="dist">{{ route.distance_km }} km</span></p>
+        <p>Durée : <span class="badge" id="dur">{{ route.duration_h }} h</span></p>
+        <p>Péage : <span class="badge" id="toll">{{ route.prix_peage }} €</span></p>
     </div>
-  </div>
 
-  <div id="infobar">
-    <div class="info-item">
-      <span class="icon">📏</span>
-      <span class="label">Distance :</span>
-      <span class="value" id="val-km">{{ route.distance_km }} km</span>
-    </div>
-    <div class="info-item">
-      <span class="icon">⏱️</span>
-      <span class="label">Durée :</span>
-      <span class="value" id="val-dur">{{ route.duration_h }} h</span>
-    </div>
-    <div class="info-item">
-      <span class="icon">📍</span>
-      <span class="label">Waypoints ajoutés :</span>
-      <span class="value" id="val-wp">0</span>
-    </div>
-  </div>
-
-  <div id="main">
     <div id="map"></div>
 
-    <div id="panel">
-      <h2>⚙️ Options</h2>
+    <script>
+        // Récupération des données envoyées par Python
+        const routeId = "{{ route_id }}";
+        const serverUrl = "{{ server_url }}";
+        // La polyline Python est [[lat, lng], ...], MapLibre utilise [[lng, lat], ...]
+        let pythonCoords = {{ route.polyline | tojson }};
+        let geojsonCoords = pythonCoords.map(c => [c[1], c[0]]);
 
-      <div class="drag-hint">
-        💡 <b>Glissez les points jaunes</b> sur le tracé pour modifier l'itinéraire.
-        L'itinéraire sera recalculé via PTV.
-      </div>
+        const startCoord = geojsonCoords[0];
+        const endCoord = geojsonCoords[geojsonCoords.length - 1];
 
-      <div class="option-group">
-        <label>
-          <input type="checkbox" id="opt-tolls"/>
-          Éviter les péages
-        </label>
-      </div>
-      <div class="option-group">
-        <label>
-          <input type="checkbox" id="opt-highways"/>
-          Éviter les autoroutes
-        </label>
-      </div>
-
-      <button class="btn-recalc" id="btn-recalc" onclick="recalculate()">
-        🔄 Recalculer
-      </button>
-
-      <button class="btn-recalc" id="btn-reset"
-              style="background:#0f3460;" onclick="resetRoute()">
-        ↩️ Réinitialiser
-      </button>
-
-      <div id="recalc-status"></div>
-
-      <div id="result-box">
-        <div class="r-line"><span>Distance</span><span id="r-km">-</span></div>
-        <div class="r-line"><span>Durée</span><span id="r-dur">-</span></div>
-        <div class="r-line"><span>Péages</span><span id="r-toll">-</span></div>
-      </div>
-    </div>
-  </div>
-
-  <div id="loader">⏳ Recalcul en cours…</div>
-
-  <div id="footer">Agent IA — Carte interactive PTV</div>
-
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-  <script>
-    // ── Données injectées par le serveur ──
-    const ROUTE_DATA = {{ route | tojson }};
-    const SERVER_URL = "{{ server_url }}";
-    const ROUTE_ID   = "{{ route_id }}";
-
-    // ── State ──
-    // FIX #1 : on fige origin/dest UNE FOIS pour toutes sur la polyline initiale
-    // → ils ne dériveront jamais, même après N recalculs
-    const ORIGIN_COORDS = ROUTE_DATA.polyline[0];
-    const DEST_COORDS   = ROUTE_DATA.polyline[ROUTE_DATA.polyline.length - 1];
-
-    let originalPolyline = [...ROUTE_DATA.polyline];
-    let userWaypoints    = [];
-    let prefWaypoints    = ROUTE_DATA.pref_waypoints || [];
-    let debounceTimer    = null;
-
-    // ── Init carte ──
-    const map = L.map('map', { zoomControl: true });
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap',
-      maxZoom: 18,
-    }).addTo(map);
-
-    // FIX #2 : 3 layers distincts → chacun est vidé indépendamment
-    // routeLayer   = la polyline
-    // endpointsLayer = marqueurs départ/arrivée (jamais effacés sauf reset)
-    // prefLayer    = waypoints préférentiels
-    // dragLayer    = points draggables jaunes
-    let routeLayer     = null;
-    let endpointsLayer = L.layerGroup().addTo(map);
-    let prefLayer      = L.layerGroup().addTo(map);
-    let dragLayer      = L.layerGroup().addTo(map);
-
-    // ── Icônes ──
-    function makeIcon(emoji) {
-      return L.divIcon({
-        html: `<div style="font-size:1.6rem;line-height:1;">${emoji}</div>`,
-        iconSize: [32, 32], iconAnchor: [16, 16], className: '',
-      });
-    }
-
-    function makeDragIcon() {
-      return L.divIcon({
-        html: '<div class="drag-marker"></div>',
-        iconSize: [14, 14], iconAnchor: [7, 7], className: '',
-      });
-    }
-
-    // ── Marqueurs départ/arrivée (dessinés une seule fois à l'init) ──
-    function drawEndpoints() {
-      endpointsLayer.clearLayers();
-
-      L.marker(ORIGIN_COORDS, { icon: makeIcon('🟢') })
-        .bindPopup(`<b>A — Départ</b><br>${ROUTE_DATA.origin}`)
-        .addTo(endpointsLayer);
-
-      L.marker(DEST_COORDS, { icon: makeIcon('🔴') })
-        .bindPopup(`<b>B — Arrivée</b><br>${ROUTE_DATA.dest}`)
-        .addTo(endpointsLayer);
-    }
-
-    // ── Marqueurs préférentiels ──
-    // FIX #3 : layer dédié → jamais écrasé par drawRoute()
-    function drawPrefMarkers() {
-      prefLayer.clearLayers();
-      prefWaypoints.forEach((wp, i) => {
-        L.circleMarker([wp.lat, wp.lng], {
-          radius: 6,
-          color: '#4fc3f7',
-          fillColor: '#4fc3f7',
-          fillOpacity: 0.8,
-          weight: 2,
-        })
-        .bindPopup(`📌 Route préférentielle #${i + 1}`)
-        .addTo(prefLayer);
-      });
-    }
-
-    // ── Points draggables ──
-    function addDragPoints(coords) {
-      dragLayer.clearLayers();
-      const step = Math.max(1, Math.floor(coords.length / 15));
-
-      for (let i = step; i < coords.length - step; i += step) {
-        const marker = L.marker(L.latLng(coords[i][0], coords[i][1]), {
-          icon: makeDragIcon(),
-          draggable: true,
-        }).addTo(dragLayer);
-
-        marker._origIndex = i;
-
-        marker.on('dragend', function (e) {
-          handleDrag(e.target.getLatLng(), marker._origIndex);
-        });
-      }
-    }
-
-    // ── Dessiner le tracé ──
-    // Ne touche plus aux endpoints ni aux prefMarkers
-    function drawRoute(coords, fit = true) {
-      if (routeLayer) map.removeLayer(routeLayer);
-      dragLayer.clearLayers();
-
-      if (!coords || coords.length === 0) return;
-
-      routeLayer = L.polyline(coords, {
-        color: '#e94560', weight: 5, opacity: 0.85, lineJoin: 'round',
-      }).addTo(map);
-
-      addDragPoints(coords);
-
-      if (fit) map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
-    }
-
-    // ── Gestion du drag ──
-    function handleDrag(newLatLng, origIndex) {
-      const wp = { lat: newLatLng.lat, lng: newLatLng.lng, index: origIndex };
-      const existing = userWaypoints.findIndex(w => w.index === origIndex);
-
-      if (existing >= 0) {
-        userWaypoints[existing] = wp;
-      } else {
-        userWaypoints.push(wp);
-      }
-
-      userWaypoints.sort((a, b) => a.index - b.index);
-      document.getElementById('val-wp').textContent = userWaypoints.length;
-
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => recalculate(), 800);
-    }
-
-    // ── Recalcul via PTV ──
-    async function recalculate() {
-      const btn    = document.getElementById('btn-recalc');
-      const status = document.getElementById('recalc-status');
-      const loader = document.getElementById('loader');
-      const resBox = document.getElementById('result-box');
-
-      const avoidTolls    = document.getElementById('opt-tolls').checked;
-      const avoidHighways = document.getElementById('opt-highways').checked;
-
-      // FIX #1 appliqué ici : on utilise ORIGIN_COORDS / DEST_COORDS figés
-      const waypoints = [
-        { lat: ORIGIN_COORDS[0], lng: ORIGIN_COORDS[1] },
-        ...userWaypoints,
-        { lat: DEST_COORDS[0],   lng: DEST_COORDS[1]   },
-      ];
-
-      btn.disabled         = true;
-      loader.style.display = 'flex';
-      status.textContent   = '⏳ Recalcul PTV en cours…';
-      resBox.style.display = 'none';
-
-      try {
-        const resp = await fetch(`${SERVER_URL}/api/recalculate_drag`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            waypoints,
-            avoid_tolls:    avoidTolls,
-            avoid_highways: avoidHighways,
-            route_id:       ROUTE_ID,
-          }),
+        // Initialisation de MapLibre
+        const map = new maplibregl.Map({
+            container: 'map',
+            // Fond de carte gratuit et épuré (Carto Voyager)
+            style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+            center: startCoord,
+            zoom: 5
         });
 
-        if (!resp.ok) {
-          const err = await resp.json();
-          throw new Error(err.detail || `HTTP ${resp.status}`);
+        // Ajout des contrôles de navigation (Zoom, rotation)
+        map.addControl(new maplibregl.NavigationControl());
+
+        let originMarker, destMarker;
+
+        map.on('load', () => {
+            // 1. Ajouter la source de données pour le tracé
+            map.addSource('routeSource', {
+                'type': 'geojson',
+                'data': {
+                    'type': 'Feature',
+                    'properties': {},
+                    'geometry': {
+                        'type': 'LineString',
+                        'coordinates': geojsonCoords
+                    }
+                }
+            });
+
+            // 2. Ajouter la couche visuelle pour dessiner le tracé
+            map.addLayer({
+                'id': 'routeLayer',
+                'type': 'line',
+                'source': 'routeSource',
+                'layout': {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                'paint': {
+                    'line-color': '#007cbf', // Bleu
+                    'line-width': 5,
+                    'line-opacity': 0.8
+                }
+            });
+
+            // Cadrer la carte sur l'ensemble du trajet
+            const bounds = new maplibregl.LngLatBounds(geojsonCoords[0], geojsonCoords[0]);
+            for (const coord of geojsonCoords) {
+                bounds.extend(coord);
+            }
+            map.fitBounds(bounds, { padding: 50 });
+
+            // 3. Ajouter les marqueurs déplaçables (Drag & Drop)
+            originMarker = new maplibregl.Marker({ color: '#27ae60', draggable: true })
+                .setLngLat(startCoord)
+                .addTo(map);
+
+            destMarker = new maplibregl.Marker({ color: '#c0392b', draggable: true })
+                .setLngLat(endCoord)
+                .addTo(map);
+
+            // Écouter la fin du glissement pour recalculer
+            originMarker.on('dragend', recalculateRoute);
+            destMarker.on('dragend', recalculateRoute);
+        });
+
+        // Fonction de recalcul
+        async function recalculateRoute() {
+            const start = originMarker.getLngLat();
+            const end = destMarker.getLngLat();
+
+            // Mettre un petit indicateur visuel (opacité) pendant le calcul
+            map.setPaintProperty('routeLayer', 'line-opacity', 0.3);
+
+            try {
+                const response = await fetch(`${serverUrl}/api/recalculate_drag`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        route_id: routeId,
+                        waypoints: [
+                            { lat: start.lat, lng: start.lng },
+                            { lat: end.lat, lng: end.lng }
+                        ]
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Mettre à jour les infos dans le panneau
+                    document.getElementById('dist').innerText = data.distance_km + " km";
+                    document.getElementById('dur').innerText = data.duration_h + " h";
+                    document.getElementById('toll').innerText = data.prix_peage + " €";
+
+                    // Convertir les nouvelles coordonnées et mettre à jour le tracé
+                    geojsonCoords = data.polyline.map(c => [c[1], c[0]]);
+                    map.getSource('routeSource').setData({
+                        'type': 'Feature',
+                        'properties': {},
+                        'geometry': {
+                            'type': 'LineString',
+                            'coordinates': geojsonCoords
+                        }
+                    });
+                } else {
+                    alert("Erreur lors du recalcul PTV.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Erreur de connexion au serveur.");
+            } finally {
+                // Remettre l'opacité normale
+                map.setPaintProperty('routeLayer', 'line-opacity', 0.8);
+            }
         }
-
-        const data = await resp.json();
-
-        drawRoute(data.polyline, true);
-
-        document.getElementById('val-km').textContent  = `${data.distance_km} km`;
-        document.getElementById('val-dur').textContent = `${data.duration_h} h`;
-        document.getElementById('r-km').textContent    = `${data.distance_km} km`;
-        document.getElementById('r-dur').textContent   = `${data.duration_h} h`;
-        document.getElementById('r-toll').textContent  = `${data.prix_peage} €`;
-        resBox.style.display = 'block';
-
-        status.textContent = '✅ Itinéraire mis à jour';
-
-      } catch (e) {
-        status.textContent = `❌ Erreur : ${e.message}`;
-        console.error(e);
-      } finally {
-        btn.disabled         = false;
-        loader.style.display = 'none';
-      }
-    }
-
-    // ── Reset ──
-    function resetRoute() {
-      userWaypoints = [];
-      document.getElementById('val-wp').textContent        = '0';
-      document.getElementById('recalc-status').textContent = '';
-      document.getElementById('result-box').style.display  = 'none';
-      document.getElementById('val-km').textContent        = `${ROUTE_DATA.distance_km} km`;
-      document.getElementById('val-dur').textContent       = `${ROUTE_DATA.duration_h} h`;
-
-      drawRoute(originalPolyline, true);
-    }
-
-    // ── Init ──
-    drawEndpoints();      // départ/arrivée une fois
-    drawPrefMarkers();    // waypoints préférentiels une fois
-    drawRoute(ROUTE_DATA.polyline);  // tracé + drag points
-  </script>
-
+    </script>
 </body>
 </html>
