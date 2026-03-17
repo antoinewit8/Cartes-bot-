@@ -276,12 +276,13 @@ async def create_route(route: RouteCreate):
 
 
 # ── Afficher la carte ────────────────────────────────────────────────────────
+# ── Afficher la carte ────────────────────────────────────────────────────────
 @app.get("/carte")
 async def show_map(request: Request, id: str):
-    routes = load_routes()
-    if id not in routes:
+    route = get_route(id)        # <--- ON UTILISE LA NOUVELLE FONCTION MAGIQUE
+    if not route:                # <--- ON VÉRIFIE SI ELLE A ÉTÉ TROUVÉE
         raise HTTPException(status_code=404, detail="Trajet introuvable")
-    route = routes[id]
+    
     return templates.TemplateResponse("map.html", {
         "request":    request,
         "route":      route,
