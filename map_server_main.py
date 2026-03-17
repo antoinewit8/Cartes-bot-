@@ -187,7 +187,7 @@ async def recalculate_drag(data: RecalcDragRequest):
         raise HTTPException(400, "Il faut au minimum 2 waypoints")
 
     # Construire les waypoints PTV : "lat,lon"
-    params = [("waypoint", f"{wp.lat},{wp.lng}") for wp in data.waypoints]
+    params = [("waypoints", f"{wp.lat},{wp.lng}") for wp in data.waypoints]
     params.append(("profile", "EUR_TRAILER_TRUCK"))
     params.append(("results", "POLYLINE,TOLL_COSTS"))
 
