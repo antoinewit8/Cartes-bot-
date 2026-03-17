@@ -25,6 +25,7 @@ PTV_API_KEY = os.environ.get("PTV_API_KEY", "")
 MAP_SERVER_URL = os.environ.get("MAP_SERVER_URL", "http://localhost:8000")
 
 FIREBASE_URL = os.environ.get("FIREBASE_URL", "").rstrip("/")
+
 # ── Helpers stockage ──────────────────────────────────────────────────────────
 
 def load_routes() -> dict:
@@ -57,7 +58,6 @@ def save_routes(data: dict):
     # 2. Sinon, on sauvegarde en local
     with open(ROUTES_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-
 
 # ── Modèles ───────────────────────────────────────────────────────────────────
 
@@ -129,8 +129,8 @@ async def recalculate(data: RouteRecalc):
     if data.avoid_highways: avoid.append("HIGHWAYS")
 
     params = [
-        ("waypoint", f"{origin_coords[0]},{origin_coords[1]}"),
-        ("waypoint", f"{dest_coords[0]},{dest_coords[1]}"),
+        ("waypoints", f"{origin_coords[0]},{origin_coords[1]}"),
+        ("waypoints", f"{dest_coords[0]},{dest_coords[1]}"),
         ("profile", "EUR_TRAILER_TRUCK"),
         ("results", "POLYLINE,TOLL_COSTS"),
     ]
@@ -144,6 +144,9 @@ async def recalculate(data: RouteRecalc):
             headers={"apiKey": PTV_API_KEY},
             timeout=30,
         )
+    print(f"🔍 PTV status: {resp.status_code}")
+    print(f"🔍 PTV URL: {resp.url}")
+    print(f"🔍 PTV response: {resp.text[:500]}")
 
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"PTV error: {resp.text}")
@@ -206,9 +209,7 @@ async def recalculate_drag(data: RecalcDragRequest):
             headers={"apiKey": PTV_API_KEY},
             timeout=30,
         )
-    print(f"🔍 PTV status: {resp.status_code}")
-    print(f"🔍 PTV URL: {resp.url}")
-    print(f"🔍 PTV response: {resp.text[:500]}")
+
     if resp.status_code != 200:
         raise HTTPException(502, f"PTV error {resp.status_code}: {resp.text[:500]}")
 
