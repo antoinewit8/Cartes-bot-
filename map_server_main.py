@@ -91,7 +91,21 @@ def save_routes(data: dict):
 
     with open(ROUTES_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-
+        
+def get_route(route_id: str) -> dict:
+    """Télécharge une seule route depuis Firebase (ultra rapide)."""
+    if FIREBASE_URL:
+        try:
+            r = httpx.get(f"{FIREBASE_URL}/routes/{route_id}.json", timeout=20)
+            if r.status_code == 200 and r.json():
+                return r.json()
+        except Exception as e:
+            print(f"Erreur lecture Firebase pour la route {route_id} : {e}")
+        return None
+        
+    # Sécurité si on est en local
+    routes = load_routes()
+    return routes.get(route_id)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  MODÈLES PYDANTIC
