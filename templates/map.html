@@ -12,19 +12,16 @@
         body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
         #info-box {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            z-index: 10;
-            max-width: 300px;
+            position: absolute; top: 20px; left: 20px;
+            background: white; padding: 15px; border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 10; max-width: 300px;
         }
         h3 { margin: 0 0 10px 0; font-size: 16px; color: #333; }
         p { margin: 5px 0; font-size: 14px; color: #555; }
         .badge { font-weight: bold; color: #007cbf; }
+        .instructions { font-size: 12px; color: #7f8c8d; margin-top: 10px; border-top: 1px solid #eee; padding-top: 10px; }
+        .btn { margin-top: 10px; padding: 8px 12px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; width: 100%; font-weight: bold;}
+        .btn:hover { background: #c0392b; }
     </style>
 </head>
 <body>
@@ -34,15 +31,22 @@
         <p>Distance : <span class="badge" id="dist">{{ route.distance_km }} km</span></p>
         <p>Durée : <span class="badge" id="dur">{{ route.duration_h }} h</span></p>
         <p>Péage : <span class="badge" id="toll">{{ route.prix_peage }} €</span></p>
+        
+        <div class="instructions">
+            📍 <b>Déplacer</b> le départ (vert) ou l'arrivée (rouge).<br>
+            ➕ <b>Clic-droit</b> sur la carte pour ajouter une étape.<br>
+            ➖ <b>Double-clic</b> sur une étape bleue pour l'effacer.
+        </div>
+        <button class="btn" onclick="clearWaypoints()">Effacer toutes les étapes</button>
     </div>
 
     <div id="map"></div>
 
     <script>
-        // Récupération des données envoyées par Python
         const routeId = "{{ route_id }}";
         const serverUrl = "{{ server_url }}";
-        // La polyline Python est [[lat, lng], ...], MapLibre utilise [[lng, lat], ...]
+        
+        // Coordonnées initiales envoyées par le serveur
         let pythonCoords = {{ route.polyline | tojson }};
         let geojsonCoords = pythonCoords.map(c => [c[1], c[0]]);
 
@@ -52,55 +56,40 @@
         // Initialisation de MapLibre
         const map = new maplibregl.Map({
             container: 'map',
-            // Fond de carte gratuit et épuré (Carto Voyager)
             style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
             center: startCoord,
             zoom: 5
         });
 
-        // Ajout des contrôles de navigation (Zoom, rotation)
         map.addControl(new maplibregl.NavigationControl());
 
         let originMarker, destMarker;
+        let waypoints = []; // Tableau qui va contenir toutes nos étapes (points bleus)
 
         map.on('load', () => {
-            // 1. Ajouter la source de données pour le tracé
+            // Source et calque de la ligne de trajet
             map.addSource('routeSource', {
                 'type': 'geojson',
                 'data': {
                     'type': 'Feature',
                     'properties': {},
-                    'geometry': {
-                        'type': 'LineString',
-                        'coordinates': geojsonCoords
-                    }
+                    'geometry': { 'type': 'LineString', 'coordinates': geojsonCoords }
                 }
             });
 
-            // 2. Ajouter la couche visuelle pour dessiner le tracé
             map.addLayer({
                 'id': 'routeLayer',
                 'type': 'line',
                 'source': 'routeSource',
-                'layout': {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                'paint': {
-                    'line-color': '#007cbf', // Bleu
-                    'line-width': 5,
-                    'line-opacity': 0.8
-                }
+                'layout': { 'line-join': 'round', 'line-cap': 'round' },
+                'paint': { 'line-color': '#007cbf', 'line-width': 5, 'line-opacity': 0.8 }
             });
 
-            // Cadrer la carte sur l'ensemble du trajet
             const bounds = new maplibregl.LngLatBounds(geojsonCoords[0], geojsonCoords[0]);
-            for (const coord of geojsonCoords) {
-                bounds.extend(coord);
-            }
+            for (const coord of geojsonCoords) { bounds.extend(coord); }
             map.fitBounds(bounds, { padding: 50 });
 
-            // 3. Ajouter les marqueurs déplaçables (Drag & Drop)
+            // Départ (Vert) et Arrivée (Rouge)
             originMarker = new maplibregl.Marker({ color: '#27ae60', draggable: true })
                 .setLngLat(startCoord)
                 .addTo(map);
@@ -109,17 +98,54 @@
                 .setLngLat(endCoord)
                 .addTo(map);
 
-            // Écouter la fin du glissement pour recalculer
             originMarker.on('dragend', recalculateRoute);
             destMarker.on('dragend', recalculateRoute);
+
+            // ➕ ÉVÉNEMENT : Clic droit sur la carte pour ajouter un waypoint
+            map.on('contextmenu', (e) => {
+                addWaypoint(e.lngLat);
+            });
         });
 
-        // Fonction de recalcul
-        async function recalculateRoute() {
-            const start = originMarker.getLngLat();
-            const end = destMarker.getLngLat();
+        // Fonction pour ajouter un point de passage
+        function addWaypoint(lngLat) {
+            // Créer un marqueur bleu
+            const wpMarker = new maplibregl.Marker({ color: '#2980b9', draggable: true })
+                .setLngLat(lngLat)
+                .addTo(map);
 
-            // Mettre un petit indicateur visuel (opacité) pendant le calcul
+            // S'il est déplacé, on recalcule
+            wpMarker.on('dragend', recalculateRoute);
+            
+            // ➖ ÉVÉNEMENT : Double clic sur le marqueur pour le supprimer
+            wpMarker.getElement().addEventListener('dblclick', () => {
+                wpMarker.remove();
+                waypoints = waypoints.filter(m => m !== wpMarker);
+                recalculateRoute();
+            });
+
+            // On l'ajoute à notre liste et on lance le recalcul
+            waypoints.push(wpMarker);
+            recalculateRoute();
+        }
+
+        // Fonction pour vider toutes les étapes d'un coup
+        function clearWaypoints() {
+            waypoints.forEach(wp => wp.remove()); // Retire les marqueurs de la carte
+            waypoints = []; // Vide le tableau
+            recalculateRoute(); // Recalcule la route directe
+        }
+
+        // Fonction de recalcul qui envoie tous les points au serveur Python
+        async function recalculateRoute() {
+            // On fait un sandwich : [Départ, ...Toutes les étapes..., Arrivée]
+            const allPoints = [
+                originMarker.getLngLat(),
+                ...waypoints.map(m => m.getLngLat()),
+                destMarker.getLngLat()
+            ];
+
+            // Rendre la ligne un peu transparente pendant qu'elle cherche
             map.setPaintProperty('routeLayer', 'line-opacity', 0.3);
 
             try {
@@ -128,39 +154,30 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         route_id: routeId,
-                        waypoints: [
-                            { lat: start.lat, lng: start.lng },
-                            { lat: end.lat, lng: end.lng }
-                        ]
+                        waypoints: allPoints.map(p => ({ lat: p.lat, lng: p.lng }))
                     })
                 });
 
                 if (response.ok) {
                     const data = await response.json();
                     
-                    // Mettre à jour les infos dans le panneau
+                    // Mise à jour des textes
                     document.getElementById('dist').innerText = data.distance_km + " km";
                     document.getElementById('dur').innerText = data.duration_h + " h";
                     document.getElementById('toll').innerText = data.prix_peage + " €";
 
-                    // Convertir les nouvelles coordonnées et mettre à jour le tracé
+                    // Mise à jour du tracé bleu sur la carte
                     geojsonCoords = data.polyline.map(c => [c[1], c[0]]);
                     map.getSource('routeSource').setData({
                         'type': 'Feature',
                         'properties': {},
-                        'geometry': {
-                            'type': 'LineString',
-                            'coordinates': geojsonCoords
-                        }
+                        'geometry': { 'type': 'LineString', 'coordinates': geojsonCoords }
                     });
-                } else {
-                    alert("Erreur lors du recalcul PTV.");
                 }
             } catch (err) {
-                console.error(err);
-                alert("Erreur de connexion au serveur.");
+                console.error("Erreur de calcul:", err);
             } finally {
-                // Remettre l'opacité normale
+                // Remettre la ligne bien visible
                 map.setPaintProperty('routeLayer', 'line-opacity', 0.8);
             }
         }
