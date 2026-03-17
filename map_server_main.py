@@ -339,13 +339,19 @@ async def recalculate_drag(data: RecalcDragRequest):
     coords     = _extract_polyline(ptv)
 
     if data.route_id:
-        routes = load_routes()
-        if data.route_id in routes:
-            routes[data.route_id]["polyline"]    = coords
-            routes[data.route_id]["distance_km"] = round(distance_m / 1000, 1)
-            routes[data.route_id]["duration_h"]  = round(duration_s / 3600, 2)
-            routes[data.route_id]["prix_peage"]  = round(prix_peage, 2)
-            save_routes(routes)
+        # On prépare juste les 4 infos qui ont changé
+        update_data = {
+            "polyline":    coords,
+            "distance_km": round(distance_m / 1000, 1),
+            "duration_h":  round(duration_s / 3600, 2),
+            "prix_peage":  round(prix_peage, 2)
+        }
+        # On les envoie directement à ce trajet précis dans Firebase (Instantané)
+        if FIREBASE_URL:
+            try:
+                httpx.patch(f"{FIREBASE_URL}/routes/{data.route_id}.json", json=update_data, timeout=10)
+            except Exception as e:
+                print(f"Erreur maj Firebase: {e}")
 
     return {
         "distance_km": round(distance_m / 1000, 1),
