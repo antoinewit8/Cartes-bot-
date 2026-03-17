@@ -79,8 +79,13 @@
         const routeId = "{{ route_id }}";
         const serverUrl = "{{ server_url }}";
         
+        // Coordonnées de l'itinéraire ACTIF (celui qui se recalcule)
         let pythonCoords = {{ route.polyline | tojson }};
         let geojsonCoords = pythonCoords.map(c => [c[1], c[0]]);
+
+        // 🌟 MODIFICATION 1 : Stocker les coordonnées de l'itinéraire INITIAL (en grisé)
+        const originalPythonCoords = {{ route.polyline | tojson }};
+        const originalGeojsonCoords = originalPythonCoords.map(c => [c[1], c[0]]);
 
         const startCoord = geojsonCoords[0];
         const endCoord = geojsonCoords[geojsonCoords.length - 1];
@@ -98,6 +103,31 @@
         let waypoints = []; // Tableau d'objets : { id, marker }
 
         map.on('load', () => {
+            // 🌟 MODIFICATION 2 : Ajouter la source pour l'itinéraire ORIGINAL (grisé)
+            map.addSource('originalRouteSource', {
+                'type': 'geojson',
+                'data': {
+                    'type': 'Feature',
+                    'properties': {},
+                    'geometry': { 'type': 'LineString', 'coordinates': originalGeojsonCoords }
+                }
+            });
+
+            // 🌟 MODIFICATION 3 : Ajouter le calque visuel pour l'itinéraire ORIGINAL
+            // On le dessine EN PREMIER pour qu'il soit en dessous du tracé bleu principal.
+            map.addLayer({
+                'id': 'originalRouteLayer',
+                'type': 'line',
+                'source': 'originalRouteSource',
+                'layout': { 'line-join': 'round', 'line-cap': 'round' },
+                'paint': { 
+                    'line-color': '#95a5a6', // Couleur grise (Concrete)
+                    'line-width': 5,         // Légèrement plus fin
+                    'line-opacity': 0.5      // Semi-transparent
+                }
+            });
+
+            // Source et calque pour l'itinéraire ACTIF (bleu, recalculé)
             map.addSource('routeSource', {
                 'type': 'geojson',
                 'data': {
@@ -230,6 +260,9 @@
                     document.getElementById('toll').innerText = data.prix_peage + " €";
 
                     geojsonCoords = data.polyline.map(c => [c[1], c[0]]);
+                    
+                    // 🌟 MODIFICATION 4 : On ne met à jour QUE la source 'routeSource' (le tracé bleu).
+                    // La source 'originalRouteSource' (le tracé grisé) n'est jamais modifiée.
                     map.getSource('routeSource').setData({
                         'type': 'Feature',
                         'properties': {},
