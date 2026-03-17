@@ -168,10 +168,27 @@ async def recalculate(data: RouteRecalc):
     else:
         prix_peage = 0
 
+        # Polyline
     polyline_raw = ptv.get("polyline", "")
-    encoded = (polyline_raw.get("encodedPolyline", "")
-               if isinstance(polyline_raw, dict) else polyline_raw)
-    coords = _decode_polyline(encoded)
+    print(f"🔍 polyline_raw type: {type(polyline_raw)}, value: {str(polyline_raw)[:300]}")
+    
+    if isinstance(polyline_raw, dict):
+        # PTV peut renvoyer un objet avec "plain" (liste de coords) ou "encodedPolyline"
+        if "plain" in polyline_raw:
+            # Format plain = {"plain": {"pointsByCoordinates": [lon1,lat1,lon2,lat2,...]}}
+            plain = polyline_raw["plain"]
+            raw_coords = plain.get("pointsByCoordinates", [])
+            coords = [[raw_coords[i+1], raw_coords[i]] for i in range(0, len(raw_coords)-1, 2)]
+        elif "encodedPolyline" in polyline_raw:
+            encoded = polyline_raw["encodedPolyline"]
+            coords = _decode_polyline(encoded) if encoded else []
+        else:
+            coords = []
+    elif isinstance(polyline_raw, str) and polyline_raw:
+        coords = _decode_polyline(polyline_raw)
+    else:
+        coords = []
+
 
     return {
         "distance_km": round(distance_m / 1000, 1),
@@ -235,13 +252,27 @@ async def recalculate_drag(data: RecalcDragRequest):
     else:
         prix_peage = 0
 
-    # Polyline
+        # Polyline
     polyline_raw = ptv.get("polyline", "")
+    print(f"🔍 polyline_raw type: {type(polyline_raw)}, value: {str(polyline_raw)[:300]}")
+    
     if isinstance(polyline_raw, dict):
-        encoded = polyline_raw.get("encodedPolyline", "")
+        # PTV peut renvoyer un objet avec "plain" (liste de coords) ou "encodedPolyline"
+        if "plain" in polyline_raw:
+            # Format plain = {"plain": {"pointsByCoordinates": [lon1,lat1,lon2,lat2,...]}}
+            plain = polyline_raw["plain"]
+            raw_coords = plain.get("pointsByCoordinates", [])
+            coords = [[raw_coords[i+1], raw_coords[i]] for i in range(0, len(raw_coords)-1, 2)]
+        elif "encodedPolyline" in polyline_raw:
+            encoded = polyline_raw["encodedPolyline"]
+            coords = _decode_polyline(encoded) if encoded else []
+        else:
+            coords = []
+    elif isinstance(polyline_raw, str) and polyline_raw:
+        coords = _decode_polyline(polyline_raw)
     else:
-        encoded = polyline_raw
-    coords = _decode_polyline(encoded)
+        coords = []
+
 
     # Sauvegarder si route_id fourni
     if data.route_id:
