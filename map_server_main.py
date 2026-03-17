@@ -29,7 +29,6 @@ FIREBASE_URL = os.environ.get("FIREBASE_URL", "").rstrip("/")
 # ── Helpers stockage ──────────────────────────────────────────────────────────
 
 def load_routes() -> dict:
-    # 1. Si on est connecté à Firebase, on lit depuis le cloud
     if FIREBASE_URL:
         try:
             r = httpx.get(f"{FIREBASE_URL}/routes.json", timeout=10)
@@ -38,24 +37,18 @@ def load_routes() -> dict:
         except Exception as e:
             print(f"Erreur lecture Firebase : {e}")
         return {}
-        
-    # 2. Sinon, on lit le fichier local (pour tes tests)
     if not os.path.exists(ROUTES_FILE):
         return {}
     with open(ROUTES_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 def save_routes(data: dict):
-    # 1. Si on est connecté à Firebase, on sauvegarde dans le cloud
     if FIREBASE_URL:
         try:
-            # On utilise PATCH pour ajouter les nouveaux trajets sans écraser les anciens
             httpx.patch(f"{FIREBASE_URL}/routes.json", json=data, timeout=10)
         except Exception as e:
             print(f"Erreur écriture Firebase : {e}")
         return
-        
-    # 2. Sinon, on sauvegarde en local
     with open(ROUTES_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
@@ -66,7 +59,7 @@ class RouteCreate(BaseModel):
     dest:        str
     distance_km: float
     duration_h:  float
-    polyline:    list          # [[lat, lon], ...]
+    polyline:    list
     prix_peage:  float = 0.0
 
 class RouteRecalc(BaseModel):
@@ -80,17 +73,66 @@ class WaypointItem(BaseModel):
     lng: float
 
 class RecalcDragRequest(BaseModel):
-    waypoints:      List[WaypointItem]   # [origin, ...intermediaires, dest]
+    waypoints:      List[WaypointItem]
     avoid_tolls:    bool = False
     avoid_highways: bool = False
     route_id:       Optional[str] = None
 
+# ── Extraction polyline universelle ───────────────────────────────────────────
+
+def _extract_polyline(ptv: dict) -> list:
+    """Extrait les coordonnées depuis la réponse PTV (GeoJSON, plain, encoded)."""
+    polyline_raw = ptv.get("polyline", "")
+    print(f"🔍 polyline_raw type: {type(polyline_raw)}, value: {str(polyline_raw)[:300]}")
+
+    # Cas 1 : déjà un dict
+    if isinstance(polyline_raw, dict):
+        # GeoJSON LineString → coordinates = [[lon, lat], ...]
+        if polyline_raw.get("type") == "LineString":
+            return [[c[1], c[0]] for c in polyline_raw.get("coordinates", [])]
+        # Format plain
+        if "plain" in polyline_raw:
+            raw = polyline_raw["plain"].get("pointsByCoordinates", [])
+            return [[raw[i+1], raw[i]] for i in range(0, len(raw)-1, 2)]
+        # Encoded dans un objet
+        if "encodedPolyline" in polyline_raw:
+            return _decode_polyline(polyline_raw["encodedPolyline"])
+        return []
+
+    # Cas 2 : string
+    if isinstance(polyline_raw, str) and polyline_raw:
+        # Tenter GeoJSON sérialisé en string
+        try:
+            parsed = json.loads(polyline_raw)
+            if isinstance(parsed, dict) and parsed.get("type") == "LineString":
+                return [[c[1], c[0]] for c in parsed.get("coordinates", [])]
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # Sinon Google encoded polyline
+        return _decode_polyline(polyline_raw)
+
+    return []
+
+def _extract_distance_duration(ptv: dict):
+    legs = ptv.get("legs", [])
+    if legs:
+        distance_m = sum(leg.get("distance", 0) for leg in legs)
+        duration_s = sum(leg.get("travelTime", 0) for leg in legs)
+    else:
+        distance_m = ptv.get("distance", 0)
+        duration_s = ptv.get("travelTime", 0)
+    return distance_m, duration_s
+
+def _extract_toll(ptv: dict) -> float:
+    toll_data = ptv.get("toll", {}).get("costs", {})
+    if isinstance(toll_data, dict):
+        return toll_data.get("convertedPrice", {}).get("price", 0)
+    return 0
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @app.post("/api/create_route")
 async def create_route(route: RouteCreate):
-    """Reçoit un trajet calculé, le stocke, retourne l'URL publique."""
     route_id = uuid.uuid4().hex[:8]
     routes   = load_routes()
     routes[route_id] = route.dict()
@@ -101,23 +143,20 @@ async def create_route(route: RouteCreate):
 
 @app.get("/carte")
 async def show_map(request: Request, id: str):
-    """Affiche la carte interactive pour un trajet donné."""
     routes = load_routes()
     if id not in routes:
         raise HTTPException(status_code=404, detail="Trajet introuvable")
     route = routes[id]
     return templates.TemplateResponse("map.html", {
-        "request":      request,
-        "route":        route,
-        "route_id":     id,
-        "server_url":   MAP_SERVER_URL,
+        "request":    request,
+        "route":      route,
+        "route_id":   id,
+        "server_url": MAP_SERVER_URL,
     })
 
 
 @app.post("/api/recalculate")
 async def recalculate(data: RouteRecalc):
-    """Recalcule un trajet avec nouvelles options (depuis le panel latéral)."""
-
     origin_coords = await _geocode(data.origin)
     dest_coords   = await _geocode(data.dest)
 
@@ -144,51 +183,14 @@ async def recalculate(data: RouteRecalc):
             headers={"apiKey": PTV_API_KEY},
             timeout=30,
         )
-    print(f"🔍 PTV status: {resp.status_code}")
-    print(f"🔍 PTV URL: {resp.url}")
-    print(f"🔍 PTV response: {resp.text[:500]}")
 
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"PTV error: {resp.text}")
 
     ptv = resp.json()
-
-    legs = ptv.get("legs", [])
-    if legs:
-        distance_m = sum(leg.get("distance", 0) for leg in legs)
-        duration_s = sum(leg.get("travelTime", 0) for leg in legs)
-    else:
-        distance_m = ptv.get("distance", 0)
-        duration_s = ptv.get("travelTime", 0)
-
-    # ✅ NOUVEAU (compatible structure PTV réelle)
-    toll_data = ptv.get("toll", {}).get("costs", {})
-    if isinstance(toll_data, dict):
-        prix_peage = toll_data.get("convertedPrice", {}).get("price", 0)
-    else:
-        prix_peage = 0
-
-        # Polyline
-    polyline_raw = ptv.get("polyline", "")
-    print(f"🔍 polyline_raw type: {type(polyline_raw)}, value: {str(polyline_raw)[:300]}")
-    
-    if isinstance(polyline_raw, dict):
-        # PTV peut renvoyer un objet avec "plain" (liste de coords) ou "encodedPolyline"
-        if "plain" in polyline_raw:
-            # Format plain = {"plain": {"pointsByCoordinates": [lon1,lat1,lon2,lat2,...]}}
-            plain = polyline_raw["plain"]
-            raw_coords = plain.get("pointsByCoordinates", [])
-            coords = [[raw_coords[i+1], raw_coords[i]] for i in range(0, len(raw_coords)-1, 2)]
-        elif "encodedPolyline" in polyline_raw:
-            encoded = polyline_raw["encodedPolyline"]
-            coords = _decode_polyline(encoded) if encoded else []
-        else:
-            coords = []
-    elif isinstance(polyline_raw, str) and polyline_raw:
-        coords = _decode_polyline(polyline_raw)
-    else:
-        coords = []
-
+    distance_m, duration_s = _extract_distance_duration(ptv)
+    prix_peage = _extract_toll(ptv)
+    coords = _extract_polyline(ptv)
 
     return {
         "distance_km": round(distance_m / 1000, 1),
@@ -202,27 +204,19 @@ async def recalculate(data: RouteRecalc):
 
 @app.post("/api/recalculate_drag")
 async def recalculate_drag(data: RecalcDragRequest):
-    """
-    Recalcule via PTV avec N waypoints (drag & drop sur la carte).
-    Reçoit : [origin, ...points_intermédiaires_draggés, dest]
-    """
-
     if len(data.waypoints) < 2:
         raise HTTPException(400, "Il faut au minimum 2 waypoints")
 
-    # Construire les waypoints PTV : "lat,lon"
     params = [("waypoints", f"{wp.lat},{wp.lng}") for wp in data.waypoints]
     params.append(("profile", "EUR_TRAILER_TRUCK"))
     params.append(("results", "POLYLINE,TOLL_COSTS"))
 
-    # Options évitement
     avoid = []
     if data.avoid_tolls:    avoid.append("TOLL_ROADS")
     if data.avoid_highways: avoid.append("HIGHWAYS")
     if avoid:
         params.append(("options[avoid]", ",".join(avoid)))
 
-    # Appel PTV
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.myptv.com/routing/v1/routes",
@@ -235,46 +229,10 @@ async def recalculate_drag(data: RecalcDragRequest):
         raise HTTPException(502, f"PTV error {resp.status_code}: {resp.text[:500]}")
 
     ptv = resp.json()
+    distance_m, duration_s = _extract_distance_duration(ptv)
+    prix_peage = _extract_toll(ptv)
+    coords = _extract_polyline(ptv)
 
-    # Distance & durée
-    legs = ptv.get("legs", [])
-    if legs:
-        distance_m = sum(leg.get("distance", 0) for leg in legs)
-        duration_s = sum(leg.get("travelTime", 0) for leg in legs)
-    else:
-        distance_m = ptv.get("distance", 0)
-        duration_s = ptv.get("travelTime", 0)
-
-    # ✅ NOUVEAU (compatible structure PTV réelle)
-    toll_data = ptv.get("toll", {}).get("costs", {})
-    if isinstance(toll_data, dict):
-        prix_peage = toll_data.get("convertedPrice", {}).get("price", 0)
-    else:
-        prix_peage = 0
-
-        # Polyline
-    polyline_raw = ptv.get("polyline", "")
-    print(f"🔍 polyline_raw type: {type(polyline_raw)}, value: {str(polyline_raw)[:300]}")
-    
-    if isinstance(polyline_raw, dict):
-        # PTV peut renvoyer un objet avec "plain" (liste de coords) ou "encodedPolyline"
-        if "plain" in polyline_raw:
-            # Format plain = {"plain": {"pointsByCoordinates": [lon1,lat1,lon2,lat2,...]}}
-            plain = polyline_raw["plain"]
-            raw_coords = plain.get("pointsByCoordinates", [])
-            coords = [[raw_coords[i+1], raw_coords[i]] for i in range(0, len(raw_coords)-1, 2)]
-        elif "encodedPolyline" in polyline_raw:
-            encoded = polyline_raw["encodedPolyline"]
-            coords = _decode_polyline(encoded) if encoded else []
-        else:
-            coords = []
-    elif isinstance(polyline_raw, str) and polyline_raw:
-        coords = _decode_polyline(polyline_raw)
-    else:
-        coords = []
-
-
-    # Sauvegarder si route_id fourni
     if data.route_id:
         routes = load_routes()
         if data.route_id in routes:
@@ -291,11 +249,9 @@ async def recalculate_drag(data: RecalcDragRequest):
         "polyline":    coords,
     }
 
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _geocode(address: str):
-    """Géocodage PTV async."""
     try:
         async with httpx.AsyncClient() as client:
             r = await client.get(
