@@ -26,6 +26,34 @@ MAP_SERVER_URL = os.environ.get("MAP_SERVER_URL", "http://localhost:8000")
 
 FIREBASE_URL = os.environ.get("FIREBASE_URL", "").rstrip("/")
 
+
+# ── Routes préférentielles ────────────────────────────────────────────────────
+
+PREF_ROUTES_FILE = "routes_preferentielles.json"
+
+def load_pref_routes() -> list:
+    if not os.path.exists(PREF_ROUTES_FILE):
+        return []
+    with open(PREF_ROUTES_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def find_pref_waypoints(origin: str, dest: str) -> list:
+    """Retourne les waypoints préférentiels pour un trajet, ou []."""
+    prefs = load_pref_routes()
+    o = origin.strip().lower()
+    d = dest.strip().lower()
+    for route in prefs:
+        if route["origine"].strip().lower() == o and route["destination"].strip().lower() == d:
+            # Convertir "lat, lng" → {lat, lng}
+            wps = []
+            for wp in route.get("waypoints", []):
+                parts = wp.split(",")
+                if len(parts) == 2:
+                    wps.append({"lat": float(parts[0].strip()), "lng": float(parts[1].strip())})
+            return wps
+    return []
+
+
 # ── Helpers stockage ──────────────────────────────────────────────────────────
 
 def load_routes() -> dict:
@@ -163,16 +191,21 @@ async def recalculate(data: RouteRecalc):
     if not origin_coords or not dest_coords:
         raise HTTPException(status_code=400, detail="Géocodage impossible")
 
+    # ── Injecter waypoints préférentiels ──
+    pref_wps = find_pref_waypoints(data.origin, data.dest)
+    
+    waypoints_list = [f"{origin_coords[0]},{origin_coords[1]}"]
+    for wp in pref_wps:
+        waypoints_list.append(f"{wp['lat']},{wp['lng']}")
+    waypoints_list.append(f"{dest_coords[0]},{dest_coords[1]}")
+
     avoid = []
     if data.avoid_tolls:    avoid.append("TOLL_ROADS")
     if data.avoid_highways: avoid.append("HIGHWAYS")
 
-    params = [
-        ("waypoints", f"{origin_coords[0]},{origin_coords[1]}"),
-        ("waypoints", f"{dest_coords[0]},{dest_coords[1]}"),
-        ("profile", "EUR_TRAILER_TRUCK"),
-        ("results", "POLYLINE,TOLL_COSTS"),
-    ]
+    params = [("waypoints", w) for w in waypoints_list]
+    params.append(("profile", "EUR_TRAILER_TRUCK"))
+    params.append(("results", "POLYLINE,TOLL_COSTS"))
     if avoid:
         params.append(("options[avoid]", ",".join(avoid)))
 
@@ -183,6 +216,25 @@ async def recalculate(data: RouteRecalc):
             headers={"apiKey": PTV_API_KEY},
             timeout=30,
         )
+
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"PTV error: {resp.text}")
+
+    ptv = resp.json()
+    distance_m, duration_s = _extract_distance_duration(ptv)
+    prix_peage = _extract_toll(ptv)
+    coords = _extract_polyline(ptv)
+
+    return {
+        "distance_km": round(distance_m / 1000, 1),
+        "duration_h":  round(duration_s / 3600, 2),
+        "prix_peage":  round(prix_peage, 2),
+        "polyline":    coords,
+        "origin":      data.origin,
+        "dest":        data.dest,
+        "pref_waypoints": pref_wps,  # pour info côté client
+    }
+
 
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail=f"PTV error: {resp.text}")
