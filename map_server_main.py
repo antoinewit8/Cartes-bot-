@@ -164,6 +164,9 @@ def _extract_polyline(ptv: dict) -> list:
             pass
         # Google encoded polyline
         return _decode_polyline(polyline_raw)
+    if len(coords) > 300:
+        step   = len(coords) / 300
+        coords = [coords[int(i * step)] for i in range(300)]
 
     return []
 
