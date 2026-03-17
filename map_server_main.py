@@ -161,8 +161,12 @@ async def recalculate(data: RouteRecalc):
         distance_m = ptv.get("distance", 0)
         duration_s = ptv.get("travelTime", 0)
 
-    toll_costs = ptv.get("toll", {}).get("costs", [])
-    prix_peage = sum(c.get("price", {}).get("amount", 0) for c in toll_costs)
+    # ✅ NOUVEAU (compatible structure PTV réelle)
+    toll_data = ptv.get("toll", {}).get("costs", {})
+    if isinstance(toll_data, dict):
+        prix_peage = toll_data.get("convertedPrice", {}).get("price", 0)
+    else:
+        prix_peage = 0
 
     polyline_raw = ptv.get("polyline", "")
     encoded = (polyline_raw.get("encodedPolyline", "")
@@ -224,9 +228,12 @@ async def recalculate_drag(data: RecalcDragRequest):
         distance_m = ptv.get("distance", 0)
         duration_s = ptv.get("travelTime", 0)
 
-    # Péages
-    toll_costs = ptv.get("toll", {}).get("costs", [])
-    prix_peage = sum(c.get("price", {}).get("amount", 0) for c in toll_costs)
+    # ✅ NOUVEAU (compatible structure PTV réelle)
+    toll_data = ptv.get("toll", {}).get("costs", {})
+    if isinstance(toll_data, dict):
+        prix_peage = toll_data.get("convertedPrice", {}).get("price", 0)
+    else:
+        prix_peage = 0
 
     # Polyline
     polyline_raw = ptv.get("polyline", "")
