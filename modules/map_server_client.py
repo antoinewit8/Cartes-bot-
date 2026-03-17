@@ -1,7 +1,5 @@
-"""
-Client HTTP vers le serveur de cartes.
-Remplace generer_carte() (HTML local) par une URL publique partageable.
-"""
+# map_server_client.py
+
 import httpx
 import time
 import os
@@ -12,8 +10,32 @@ load_dotenv()
 MAP_SERVER_URL = os.environ.get("MAP_SERVER_URL", "http://localhost:8000")
 
 MAX_RETRIES  = 3
-RETRY_DELAY  = 10   # secondes entre chaque tentative
-TIMEOUT      = 180  # secondes par tentative
+RETRY_DELAY  = 5
+TIMEOUT      = 30   # ← 30s max par requête (le cold start est géré par warm_up)
+
+
+def warm_up_server() -> bool:
+    """
+    À appeler UNE FOIS au démarrage du script.
+    Réveille Render et attend qu'il soit prêt.
+    Retourne True si le serveur répond, False sinon.
+    """
+    print(f"\n🔌 Réveil du serveur de cartes...")
+    
+    for attempt in range(1, 7):   # max 60s d'attente (6 × 10s)
+        try:
+            r = httpx.get(f"{MAP_SERVER_URL}/health", timeout=10)
+            if r.status_code == 200:
+                print(f"   ✅ Serveur prêt ({attempt * 10}s)")
+                return True
+        except (httpx.TimeoutException, httpx.ConnectError):
+            pass
+        
+        print(f"   ⏳ Pas encore prêt... ({attempt}/6)")
+        time.sleep(10)
+    
+    print(f"   ❌ Serveur inaccessible après 60s")
+    return False
 
 
 def create_route_url(
@@ -21,15 +43,9 @@ def create_route_url(
     dest_name:   str,
     km:          float,
     duration_h:  float,
-    polyline:    list,   # [[lat, lon], ...]
+    polyline:    list,
     prix_peage:  float = 0.0,
 ) -> str:
-    """
-    Envoie le trajet au serveur de cartes.
-    Retourne l'URL publique cliquable (ex: https://ton-serveur.com/carte?id=abc123)
-    En cas d'erreur → retourne "" (le reste du traitement continue)
-    Retry automatique jusqu'à MAX_RETRIES fois en cas de timeout.
-    """
     payload = {
         "origin":      origin_name,
         "dest":        dest_name,
@@ -41,9 +57,7 @@ def create_route_url(
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            if attempt == 1:
-                print(f"      🔍 Envoi carte → {MAP_SERVER_URL}/api/create_route")
-            else:
+            if attempt > 1:
                 print(f"      🔄 Tentative {attempt}/{MAX_RETRIES}...")
 
             r = httpx.post(
@@ -53,25 +67,22 @@ def create_route_url(
             )
             r.raise_for_status()
             url = r.json().get("url", "")
-            print(f"      🌐 Carte publique créée : {url}")
+            print(f"      🌐 {url}")
             return url
 
         except httpx.HTTPStatusError as e:
-            # Erreur HTTP (4xx/5xx) → pas la peine de retry
-            print(f"      ⚠️ Serveur carte HTTP {e.response.status_code} : {e.response.text}")
+            print(f"      ⚠️ HTTP {e.response.status_code}")
             return ""
 
         except (httpx.TimeoutException, httpx.ConnectError) as e:
-            print(f"      ⏳ Timeout/connexion ({attempt}/{MAX_RETRIES}) : {e}")
+            print(f"      ⏳ Timeout ({attempt}/{MAX_RETRIES})")
             if attempt < MAX_RETRIES:
-                print(f"      💤 Attente {RETRY_DELAY}s avant retry...")
                 time.sleep(RETRY_DELAY)
             else:
-                print(f"      ⚠️ Serveur carte inaccessible après {MAX_RETRIES} tentatives")
                 return ""
 
         except Exception as e:
-            print(f"      ⚠️ Erreur inattendue : {e}")
+            print(f"      ⚠️ Erreur : {e}")
             return ""
 
     return ""
