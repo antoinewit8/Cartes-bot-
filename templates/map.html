@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Carte Trajet — {{ route.origin }} → {{ route.dest }}</title>
 
-  <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
   <style>
@@ -179,7 +178,6 @@
       color: #e94560;
     }
 
-    /* Waypoint draggable markers */
     .drag-marker {
       width: 14px;
       height: 14px;
@@ -203,7 +201,6 @@
 </head>
 <body>
 
-  <!-- Header -->
   <div id="header">
     <h1>🗺️ <span>{{ route.origin }}</span> → <span>{{ route.dest }}</span></h1>
     <div>
@@ -215,7 +212,6 @@
     </div>
   </div>
 
-  <!-- Info bar -->
   <div id="infobar">
     <div class="info-item">
       <span class="icon">📏</span>
@@ -235,10 +231,8 @@
   </div>
 
   <div id="main">
-    <!-- Carte -->
     <div id="map"></div>
 
-    <!-- Panel latéral -->
     <div id="panel">
       <h2>⚙️ Options</h2>
 
@@ -281,11 +275,8 @@
 
   <div id="loader">⏳ Recalcul en cours…</div>
 
-  <div id="footer">
-    Agent IA — Carte interactive PTV
-  </div>
+  <div id="footer">Agent IA — Carte interactive PTV</div>
 
-  <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
@@ -295,26 +286,14 @@
     const ROUTE_ID   = "{{ route_id }}";
 
     // ── State ──
-    let originalPolyline = [...ROUTE_DATA.polyline];
-    let userWaypoints    = [];  // [{lat, lng}, ...] ajoutés par drag
-        // Waypoints préférentiels (viennent du JSON serveur)
-    let prefWaypoints = ROUTE_DATA.pref_waypoints || [];
-    
-    // ── Afficher marqueurs préférentiels ──
-    function drawPrefMarkers() {
-      prefWaypoints.forEach((wp, i) => {
-        L.circleMarker([wp.lat, wp.lng], {
-          radius: 6,
-          color: '#4fc3f7',
-          fillColor: '#4fc3f7',
-          fillOpacity: 0.8,
-          weight: 2,
-        })
-        .bindPopup(`📌 Route préférentielle #${i+1}`)
-        .addTo(markersLayer);
-      });
-    }
+    // FIX #1 : on fige origin/dest UNE FOIS pour toutes sur la polyline initiale
+    // → ils ne dériveront jamais, même après N recalculs
+    const ORIGIN_COORDS = ROUTE_DATA.polyline[0];
+    const DEST_COORDS   = ROUTE_DATA.polyline[ROUTE_DATA.polyline.length - 1];
 
+    let originalPolyline = [...ROUTE_DATA.polyline];
+    let userWaypoints    = [];
+    let prefWaypoints    = ROUTE_DATA.pref_waypoints || [];
     let debounceTimer    = null;
 
     // ── Init carte ──
@@ -325,10 +304,15 @@
       maxZoom: 18,
     }).addTo(map);
 
-    // Layers
-    let routeLayer   = null;
-    let markersLayer = L.layerGroup().addTo(map);
-    let dragLayer    = L.layerGroup().addTo(map);
+    // FIX #2 : 3 layers distincts → chacun est vidé indépendamment
+    // routeLayer   = la polyline
+    // endpointsLayer = marqueurs départ/arrivée (jamais effacés sauf reset)
+    // prefLayer    = waypoints préférentiels
+    // dragLayer    = points draggables jaunes
+    let routeLayer     = null;
+    let endpointsLayer = L.layerGroup().addTo(map);
+    let prefLayer      = L.layerGroup().addTo(map);
+    let dragLayer      = L.layerGroup().addTo(map);
 
     // ── Icônes ──
     function makeIcon(emoji) {
@@ -345,46 +329,43 @@
       });
     }
 
-    // ── Dessiner le tracé + drag points ──
-        function drawRoute(coords, fit = true) {
-      if (routeLayer) map.removeLayer(routeLayer);
-      markersLayer.clearLayers();
-      dragLayer.clearLayers();
+    // ── Marqueurs départ/arrivée (dessinés une seule fois à l'init) ──
+    function drawEndpoints() {
+      endpointsLayer.clearLayers();
 
-      if (!coords || coords.length === 0) return;
-
-      // Polyline
-      routeLayer = L.polyline(coords, {
-        color: '#e94560', weight: 5, opacity: 0.85, lineJoin: 'round',
-      }).addTo(map);
-
-      // Départ 🟢
-      L.marker(coords[0], { icon: makeIcon('🟢') })
+      L.marker(ORIGIN_COORDS, { icon: makeIcon('🟢') })
         .bindPopup(`<b>A — Départ</b><br>${ROUTE_DATA.origin}`)
-        .addTo(markersLayer);
+        .addTo(endpointsLayer);
 
-      // Arrivée 🔴
-      L.marker(coords[coords.length - 1], { icon: makeIcon('🔴') })
+      L.marker(DEST_COORDS, { icon: makeIcon('🔴') })
         .bindPopup(`<b>B — Arrivée</b><br>${ROUTE_DATA.dest}`)
-        .addTo(markersLayer);
-
-      // Marqueurs préférentiels
-      drawPrefMarkers();
-
-      // Points draggables
-      addDragPoints(coords);
-
-      if (fit) map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
+        .addTo(endpointsLayer);
     }
 
+    // ── Marqueurs préférentiels ──
+    // FIX #3 : layer dédié → jamais écrasé par drawRoute()
+    function drawPrefMarkers() {
+      prefLayer.clearLayers();
+      prefWaypoints.forEach((wp, i) => {
+        L.circleMarker([wp.lat, wp.lng], {
+          radius: 6,
+          color: '#4fc3f7',
+          fillColor: '#4fc3f7',
+          fillOpacity: 0.8,
+          weight: 2,
+        })
+        .bindPopup(`📌 Route préférentielle #${i + 1}`)
+        .addTo(prefLayer);
+      });
+    }
+
+    // ── Points draggables ──
     function addDragPoints(coords) {
-      // Un point draggable tous les ~50 points (ajustable)
+      dragLayer.clearLayers();
       const step = Math.max(1, Math.floor(coords.length / 15));
 
       for (let i = step; i < coords.length - step; i += step) {
-        const latlng = L.latLng(coords[i][0], coords[i][1]);
-
-        const marker = L.marker(latlng, {
+        const marker = L.marker(L.latLng(coords[i][0], coords[i][1]), {
           icon: makeDragIcon(),
           draggable: true,
         }).addTo(dragLayer);
@@ -392,32 +373,42 @@
         marker._origIndex = i;
 
         marker.on('dragend', function (e) {
-          const pos = e.target.getLatLng();
-          handleDrag(pos, marker._origIndex);
+          handleDrag(e.target.getLatLng(), marker._origIndex);
         });
       }
     }
 
+    // ── Dessiner le tracé ──
+    // Ne touche plus aux endpoints ni aux prefMarkers
+    function drawRoute(coords, fit = true) {
+      if (routeLayer) map.removeLayer(routeLayer);
+      dragLayer.clearLayers();
+
+      if (!coords || coords.length === 0) return;
+
+      routeLayer = L.polyline(coords, {
+        color: '#e94560', weight: 5, opacity: 0.85, lineJoin: 'round',
+      }).addTo(map);
+
+      addDragPoints(coords);
+
+      if (fit) map.fitBounds(routeLayer.getBounds(), { padding: [40, 40] });
+    }
+
     // ── Gestion du drag ──
     function handleDrag(newLatLng, origIndex) {
-      // Trouver où insérer ce waypoint dans l'ordre
-      // On stocke tous les waypoints manuels
       const wp = { lat: newLatLng.lat, lng: newLatLng.lng, index: origIndex };
-
-      // Remplacer si même index, sinon ajouter
       const existing = userWaypoints.findIndex(w => w.index === origIndex);
+
       if (existing >= 0) {
         userWaypoints[existing] = wp;
       } else {
         userWaypoints.push(wp);
       }
 
-      // Trier par index (= ordre sur la route)
       userWaypoints.sort((a, b) => a.index - b.index);
-
       document.getElementById('val-wp').textContent = userWaypoints.length;
 
-      // Debounce — recalcule 800ms après le dernier drag
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => recalculate(), 800);
     }
@@ -432,15 +423,11 @@
       const avoidTolls    = document.getElementById('opt-tolls').checked;
       const avoidHighways = document.getElementById('opt-highways').checked;
 
-      // Construire la liste de waypoints :
-      // origin_coords + user_waypoints + dest_coords
-      const origin = ROUTE_DATA.polyline[0];
-      const dest   = ROUTE_DATA.polyline[ROUTE_DATA.polyline.length - 1];
-
+      // FIX #1 appliqué ici : on utilise ORIGIN_COORDS / DEST_COORDS figés
       const waypoints = [
-        { lat: origin[0], lng: origin[1] },
+        { lat: ORIGIN_COORDS[0], lng: ORIGIN_COORDS[1] },
         ...userWaypoints,
-        { lat: dest[0], lng: dest[1] },
+        { lat: DEST_COORDS[0],   lng: DEST_COORDS[1]   },
       ];
 
       btn.disabled         = true;
@@ -453,7 +440,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            waypoints:      waypoints,
+            waypoints,
             avoid_tolls:    avoidTolls,
             avoid_highways: avoidHighways,
             route_id:       ROUTE_ID,
@@ -467,10 +454,8 @@
 
         const data = await resp.json();
 
-        // Redessiner
         drawRoute(data.polyline, true);
 
-        // MAJ infos
         document.getElementById('val-km').textContent  = `${data.distance_km} km`;
         document.getElementById('val-dur').textContent = `${data.duration_h} h`;
         document.getElementById('r-km').textContent    = `${data.distance_km} km`;
@@ -492,19 +477,19 @@
     // ── Reset ──
     function resetRoute() {
       userWaypoints = [];
-      document.getElementById('val-wp').textContent = '0';
+      document.getElementById('val-wp').textContent        = '0';
       document.getElementById('recalc-status').textContent = '';
-      document.getElementById('result-box').style.display = 'none';
-
-      // Restaurer valeurs initiales
-      document.getElementById('val-km').textContent  = `${ROUTE_DATA.distance_km} km`;
-      document.getElementById('val-dur').textContent = `${ROUTE_DATA.duration_h} h`;
+      document.getElementById('result-box').style.display  = 'none';
+      document.getElementById('val-km').textContent        = `${ROUTE_DATA.distance_km} km`;
+      document.getElementById('val-dur').textContent       = `${ROUTE_DATA.duration_h} h`;
 
       drawRoute(originalPolyline, true);
     }
 
     // ── Init ──
-    drawRoute(ROUTE_DATA.polyline);
+    drawEndpoints();      // départ/arrivée une fois
+    drawPrefMarkers();    // waypoints préférentiels une fois
+    drawRoute(ROUTE_DATA.polyline);  // tracé + drag points
   </script>
 
 </body>
