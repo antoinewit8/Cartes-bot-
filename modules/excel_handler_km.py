@@ -123,12 +123,24 @@ GPS_FIXES_ORIGIN = {
 # ============================================================
 
 def find_first_empty_column(ws):
+    """Trouve la première colonne vraiment vide (header ET données)."""
     col = 1
     while col < 100:
-        if ws.cell(row=HEADER_ROW, column=col).value is None:
+        # Vérifie header
+        if ws.cell(row=HEADER_ROW, column=col).value is not None:
+            col += 1
+            continue
+        # Vérifie aussi les 10 premières lignes de données
+        has_data = False
+        for row in range(DATA_START_ROW, min(DATA_START_ROW + 10, ws.max_row + 1)):
+            if ws.cell(row=row, column=col).value is not None:
+                has_data = True
+                break
+        if not has_data:
             return col
         col += 1
     return col
+
 
 
 def pad_postal_code(cp, country_prefix):
