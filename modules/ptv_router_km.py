@@ -239,41 +239,30 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
             else:
                 print(f"      ⚠️  Waypoint ignoré : {wp_address}")
 
-   # 2. Construction du body JSON pour PTV Routing v1 (mode POST)
+      # 2. Construction du body JSON pour PTV Routing v1 (mode POST)
     request_waypoints = []
 
     # Point de départ
     request_waypoints.append({
-        "onRoadWaypoint": {
-            "location": {
-                "latitude": lat_start,
-                "longitude": lon_start
-            }
-        }
+        "latitude": lat_start,
+        "longitude": lon_start
     })
 
     # Waypoints intermédiaires
     for lat, lon in waypoints_coords:
         request_waypoints.append({
-            "onRoadWaypoint": {
-                "location": {
-                    "latitude": lat,
-                    "longitude": lon
-                }
-            }
+            "latitude": lat,
+            "longitude": lon
         })
 
     # Point d'arrivée
     request_waypoints.append({
-        "onRoadWaypoint": {
-            "location": {
-                "latitude": lat_end,
-                "longitude": lon_end
-            }
-        }
+        "latitude": lat_end,
+        "longitude": lon_end
     })
 
-    print(f"      🗺️  {len(request_waypoints)} points (onRoad)")
+    print(f"      🗺️  {len(request_waypoints)} points")
+
 
     # 3. Appel API PTV en POST
     results_values = ["POLYLINE"]
