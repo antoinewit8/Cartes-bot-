@@ -4,6 +4,8 @@ import math
 import unicodedata
 import re
 import requests
+from modules.villes_jalons import detecter_villes_jalons
+
 
 # ==========================================
 # CONFIG
@@ -140,26 +142,23 @@ def haversine(lat1, lon1, lat2, lon2) -> float:
     return R * 2 * math.asin(math.sqrt(a))
 
 # ==========================================
-# FONCTION PRINCIPALE
+# FONCTION PRINCIPALE (remplace l'ancienne)
 # ==========================================
 def get_waypoints(origin: str, dest: str) -> list:
     routes = charger_routes()
-    if not routes:
-        return []
-
     print(f"   🔍 Recherche route préférentielle : '{origin}' → '{dest}'")
 
     coords_origin = geocoder_ville(origin)
     coords_dest   = geocoder_ville(dest)
+    norm_origin   = normalize(origin)
+    norm_dest     = normalize(dest)
 
-    norm_origin = normalize(origin)
-    norm_dest   = normalize(dest)
-
+    # ── 1. Chercher route manuelle exacte ──
     for route in routes:
         origine_ref = route.get("origine", "")
         dest_ref    = route.get("destination", "")
 
-        # ── Matching départ ──────────────────────────────────────────
+        # Matching départ
         match_dep = False
         if coords_origin:
             coords_ref_dep = geocoder_ville(origine_ref)
@@ -177,7 +176,7 @@ def get_waypoints(origin: str, dest: str) -> list:
         if not match_dep:
             continue
 
-        # ── Matching arrivée ─────────────────────────────────────────
+        # Matching arrivée
         match_arr = False
         if coords_dest:
             coords_ref_arr = geocoder_ville(dest_ref)
@@ -194,9 +193,20 @@ def get_waypoints(origin: str, dest: str) -> list:
 
         if match_dep and match_arr:
             waypoints = route.get("waypoints", [])
-            print(f"   ✅ Route trouvée : {origine_ref} → {dest_ref} "
+            print(f"   ✅ Route manuelle trouvée : {origine_ref} → {dest_ref} "
                   f"({len(waypoints)} waypoints)")
             return waypoints
+
+    # ── 2. Sinon : détection automatique villes-jalons ──
+    if coords_origin and coords_dest:
+        print(f"   🔄 Pas de route manuelle → détection villes-jalons...")
+        jalons = detecter_villes_jalons(
+            coords_origin[0], coords_origin[1],
+            coords_dest[0], coords_dest[1]
+        )
+        if jalons:
+            print(f"   ✅ {len(jalons)} villes-jalons détectées automatiquement")
+            return jalons
 
     print(f"   📍 Aucune route préférentielle → PTV choisit le trajet")
     return []
