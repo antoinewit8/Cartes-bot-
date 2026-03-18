@@ -239,41 +239,41 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
             else:
                 print(f"      ⚠️  Waypoint ignoré : {wp_address}")
 
-    # 2. Construction du body JSON pour PTV (mode POST)
+   # 2. Construction du body JSON pour PTV Routing v1 (mode POST)
     request_waypoints = []
-    
+
     # Point de départ
     request_waypoints.append({
-        "offRoadWaypoint": {
+        "onRoadWaypoint": {
             "location": {
-                "offRoadCoordinate": {"latitude": lat_start, "longitude": lon_start},
-                "matchingDistance": matching_radius
-            }
-        }
-    })
-    
-    # Waypoints intermédiaires
-    for lat, lon in waypoints_coords:
-        request_waypoints.append({
-            "offRoadWaypoint": {
-                "location": {
-                    "offRoadCoordinate": {"latitude": lat, "longitude": lon},
-                    "matchingDistance": matching_radius
-                }
-            }
-        })
-    
-    # Point d'arrivée
-    request_waypoints.append({
-        "offRoadWaypoint": {
-            "location": {
-                "offRoadCoordinate": {"latitude": lat_end, "longitude": lon_end},
-                "matchingDistance": matching_radius
+                "latitude": lat_start,
+                "longitude": lon_start
             }
         }
     })
 
-    print(f"      🗺️  {len(request_waypoints)} points avec rayon {matching_radius}m")
+    # Waypoints intermédiaires
+    for lat, lon in waypoints_coords:
+        request_waypoints.append({
+            "onRoadWaypoint": {
+                "location": {
+                    "latitude": lat,
+                    "longitude": lon
+                }
+            }
+        })
+
+    # Point d'arrivée
+    request_waypoints.append({
+        "onRoadWaypoint": {
+            "location": {
+                "latitude": lat_end,
+                "longitude": lon_end
+            }
+        }
+    })
+
+    print(f"      🗺️  {len(request_waypoints)} points (onRoad)")
 
     # 3. Appel API PTV en POST
     results_values = ["POLYLINE"]
