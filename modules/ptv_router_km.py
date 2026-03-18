@@ -199,83 +199,136 @@ def decode_polyline(encoded: str) -> list:
         coords.append([lat / 1e5, lon / 1e5])
     return coords
 
-def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, calculer_peage=False):
+def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, calculer_peage=False, matching_radius=500):
     """
-    Calcule l'itinéraire avec ou sans waypoints.
-    Si calculer_peage=True, demande aussi les coûts de péage en Euros.
+    Calcule l'itinéraire avec waypoints souples (rayon de tolérance).
+    matching_radius : rayon en mètres pour accrocher le waypoint à la route la plus proche.
     """
+    
     # 1. Géocodage des waypoints intermédiaires
     waypoints_coords = []
     if waypoints:
         for wp_address in waypoints:
+            # Si c'est déjà un tuple/list de coordonnées (depuis la carte)
+            if isinstance(wp_address, (list, tuple)) and len(wp_address) == 2:
+                try:
+                    lat, lon = float(wp_address[0]), float(wp_address[1])
+                    waypoints_coords.append((lat, lon))
+                    print(f"      📌 Waypoint direct : ({lat:.4f}, {lon:.4f})")
+                    continue
+                except (ValueError, TypeError):
+                    pass
+            
+            # Si c'est une string "lat, lon"
+            if isinstance(wp_address, str) and "," in wp_address:
+                parts = wp_address.split(",")
+                if len(parts) == 2:
+                    try:
+                        lat, lon = float(parts[0].strip()), float(parts[1].strip())
+                        waypoints_coords.append((lat, lon))
+                        print(f"      📌 Waypoint GPS : ({lat:.4f}, {lon:.4f})")
+                        continue
+                    except ValueError:
+                        pass
+            
+            # Sinon géocodage par nom
             coords = geocode_address(wp_address)
             if coords:
                 waypoints_coords.append(coords)
-                print(f"      📌 Waypoint OK : {wp_address} → {coords}")
+                print(f"      📌 Waypoint géocodé : {wp_address} → {coords}")
             else:
                 print(f"      ⚠️  Waypoint ignoré : {wp_address}")
 
-    # 2. Construction de la liste complète de points
-    all_points = (
-        [(lat_start, lon_start)]
-        + waypoints_coords
-        + [(lat_end, lon_end)]
-    )
+    # 2. Construction du body JSON pour PTV (mode POST)
+    request_waypoints = []
+    
+    # Point de départ
+    request_waypoints.append({
+        "offRoadWaypoint": {
+            "location": {
+                "offRoadCoordinate": {"latitude": lat_start, "longitude": lon_start},
+                "matchingDistance": matching_radius
+            }
+        }
+    })
+    
+    # Waypoints intermédiaires
+    for lat, lon in waypoints_coords:
+        request_waypoints.append({
+            "offRoadWaypoint": {
+                "location": {
+                    "offRoadCoordinate": {"latitude": lat, "longitude": lon},
+                    "matchingDistance": matching_radius
+                }
+            }
+        })
+    
+    # Point d'arrivée
+    request_waypoints.append({
+        "offRoadWaypoint": {
+            "location": {
+                "offRoadCoordinate": {"latitude": lat_end, "longitude": lon_end},
+                "matchingDistance": matching_radius
+            }
+        }
+    })
 
-    print(f"      🗺️  Points transmis à PTV ({len(all_points)}) : {all_points}")
+    print(f"      🗺️  {len(request_waypoints)} points avec rayon {matching_radius}m")
 
-    # 3. Appel API PTV avec retry
+    # 3. Appel API PTV en POST
+    results_values = ["POLYLINE"]
+    if calculer_peage:
+        results_values.append("TOLL_COSTS")
+
+    params = {
+        "profile": VEHICLE_PROFILE,
+        "results": ",".join(results_values),
+    }
+    if calculer_peage:
+        params["options[currency]"] = "EUR"
+
+    body = {
+        "waypoints": request_waypoints
+    }
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            params = [("waypoints", f"{lat},{lon}") for lat, lon in all_points]
-            params.append(("profile", VEHICLE_PROFILE))
-
-            results_values = ["POLYLINE"]
-            if calculer_peage:
-                results_values.append("TOLL_COSTS")
-            params.append(("results", ",".join(results_values)))
-            if calculer_peage:
-                params.append(("options[currency]", "EUR"))
-
-            resp = requests.get(
+            response = requests.post(
                 f"{BASE_URL}/routes",
+                headers={**HEADERS, "Content-Type": "application/json"},
                 params=params,
-                headers=HEADERS,
+                json=body,
                 timeout=30
             )
+            
+            print(f"      🔗 PTV Status: {response.status_code}")
+            
+            if response.status_code != 200:
+                print(f"      ❌ PTV Erreur: {response.text[:500]}")
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_DELAY)
+                    continue
+                return None
 
-            if resp.status_code != 200:
-                print(f"      ❌ PTV {resp.status_code} : {resp.text}")
-                time.sleep(RETRY_DELAY)
-                continue
+            data = response.json()
 
-            data = resp.json()
+            km = round(data.get("distance", 0) / 1000, 1)
+            travel_time_h = round(data.get("travelTime", 0) / 3600, 2)
 
-            km            = round(data.get("distance", 0) / 1000, 1)
-            travel_time_h = round(data.get("travelTime", 0) / 3600, 1)
-
-            if data.get("violated"):
-                print(f"      ⚠️  Route avec restrictions violées (waypoints forcés)")
-
-                        # ✅ Extraction polyline
-            polyline_raw = data.get("polyline", "")
-            if isinstance(polyline_raw, dict):
-                polyline_encoded = polyline_raw.get("encodedPolyline", "")
-            elif isinstance(polyline_raw, str):
-                polyline_encoded = polyline_raw
-            else:
-                polyline_encoded = ""
-
-            # ✅ Décodage polyline → [[lat, lon], ...]
+            # Extraction polyline
+            polyline_raw = data.get("polyline", None)
             polyline_coords = []
-            if polyline_encoded:
-                try:
-                    polyline_coords = decode_polyline(polyline_encoded)
-                    print(f"      📐 Polyline décodée : {len(polyline_coords)} points")
-                except Exception as e:
-                    print(f"      ⚠️ Décodage polyline échoué : {e}")
 
-            # ✅ Extraction péage
+            if polyline_raw:
+                try:
+                    geojson_data = json.loads(polyline_raw) if isinstance(polyline_raw, str) else polyline_raw
+                    if "coordinates" in geojson_data:
+                        polyline_coords = [[lat, lon] for lon, lat in geojson_data["coordinates"]]
+                        print(f"      📐 Polyline : {len(polyline_coords)} points")
+                except Exception as e:
+                    print(f"      ⚠️ Extraction polyline échouée : {e}")
+
+            # Extraction péage
             prix_peage = 0.0
             if calculer_peage:
                 toll_data = data.get("toll", {}).get("costs", {})
@@ -289,7 +342,7 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
                 "km":              km,
                 "travel_time_h":   travel_time_h,
                 "violated":        data.get("violated", False),
-                "polyline":        polyline_encoded,
+                "polyline":        polyline_raw,
                 "polyline_coords": polyline_coords,
                 "prix_peage":      round(float(prix_peage), 2)
             }
