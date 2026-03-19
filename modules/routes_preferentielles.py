@@ -94,7 +94,9 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
 
     try:
         # ── Construire les paramètres PTV ──
-               if len(parts) >= 2:
+        parts = [p.strip() for p in ville_clean.split(',')]
+
+        if len(parts) >= 2:
             city_name = parts[0]
             cp = parts[1] if parts[1].strip().isdigit() else ""
             pays = parts[-1].strip() if len(parts) >= 3 else ""
