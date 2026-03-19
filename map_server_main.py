@@ -221,7 +221,7 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
         parts = wp_str.split(",")
         lat = float(parts[0].strip())
         lng = float(parts[1].strip())
-        query_params.append(("waypoint", f"{lat},{lng}"))
+        query_params.append(("waypoints", f"{lat},{lng}"))
 
     avoid = []
     if avoid_tolls:    avoid.append("TOLL_ROADS")
