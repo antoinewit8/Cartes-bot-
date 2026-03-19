@@ -94,16 +94,16 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
 
     try:
         # ── Construire les paramètres PTV ──
-        parts = [p.strip() for p in ville_clean.split(',')]
-        
-        if len(parts) >= 2:
+               if len(parts) >= 2:
             city_name = parts[0]
             cp = parts[1] if parts[1].strip().isdigit() else ""
             pays = parts[-1].strip() if len(parts) >= 3 else ""
             
-            params = {"searchText": city_name}
+            # Construire searchText avec ville + CP
+            search = city_name
             if cp:
-                params["postalCode"] = cp
+                search = f"{city_name}, {cp}"
+            params = {"searchText": search}
             
             country_filter = ""
             if pays:
@@ -117,6 +117,7 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
                 params["countryFilter"] = country_filter
         else:
             params = {"searchText": ville_clean, "countryFilter": "FR"}
+
 
         response = requests.get(
             PTV_GEO_URL,
