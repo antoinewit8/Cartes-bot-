@@ -6,7 +6,6 @@ import re
 import requests
 from modules.villes_jalons import detecter_villes_jalons
 
-
 # ==========================================
 # CONFIG
 # ==========================================
@@ -78,7 +77,6 @@ def normalize(text: str) -> str:
 # GÉOCODAGE PTV
 # ==========================================
 def geocoder_ville(ville: str) -> tuple[float, float] | None:
-    # ── Normaliser abréviations courantes ──
     ville_clean = ville
     ville_clean = re.sub(r'\bST\b', 'SAINT', ville_clean, flags=re.IGNORECASE)
     ville_clean = re.sub(r'\bSTE\b', 'SAINTE', ville_clean, flags=re.IGNORECASE)
@@ -95,36 +93,30 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
         return None
 
     try:
-        params = {"searchText": ville, "language": "fr"}
-
-        # ── Détecter le pays ──
-        ville_lower = ville.lower()
-        COUNTRY_KEYWORDS = {
-            "FR": ["france"],
-            "BE": ["belgium", "belgique", "belgi"],
-            "DE": ["germany", "deutschland", "allemagne"],
-            "NL": ["netherlands", "nederland", "pays-bas"],
-            "LU": ["luxembourg"],
-            "IT": ["italy", "italia", "itali"],
-            "ES": ["spain", "espagne", "españa"],
-            "PT": ["portugal"],
-            "GB": ["united kingdom", "uk", "angleterre"],
-            "CH": ["switzerland", "suisse", "schweiz"],
-            "AT": ["austria", "autriche"],
-            "PL": ["poland", "pologne"],
-            "CZ": ["czech republic", "tchéquie"],
-        }
-
-        country_filter = None
-        for iso, keywords in COUNTRY_KEYWORDS.items():
-            if any(kw in ville_lower for kw in keywords):
-                country_filter = iso
-                break
-
-        if not country_filter:
-            country_filter = "FR"
-
-        params["countryFilter"] = country_filter
+        # ── Construire les paramètres PTV ──
+        parts = [p.strip() for p in ville_clean.split(',')]
+        
+        if len(parts) >= 2:
+            city_name = parts[0]
+            cp = parts[1] if parts[1].strip().isdigit() else ""
+            pays = parts[-1].strip() if len(parts) >= 3 else ""
+            
+            params = {"searchText": city_name}
+            if cp:
+                params["postalCode"] = cp
+            
+            country_filter = ""
+            if pays:
+                country_map = {
+                    "france": "FR", "belgium": "BE", "germany": "DE",
+                    "netherlands": "NL", "luxembourg": "LU", "italy": "IT",
+                    "spain": "ES", "switzerland": "CH", "austria": "AT",
+                }
+                country_filter = country_map.get(pays.lower(), "")
+            if country_filter:
+                params["countryFilter"] = country_filter
+        else:
+            params = {"searchText": ville_clean, "countryFilter": "FR"}
 
         response = requests.get(
             PTV_GEO_URL,
@@ -140,13 +132,10 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
             print(f"      ⚠️ Aucun résultat géocodage pour '{ville}'")
             return None
 
-        # ── Filtrer : privilégier match sur nom de ville, pas rue ──
         ville_nom = ville.split(",")[0].strip()
         ville_nom_norm = normalize(ville_nom)
-
         best = None
 
-        # 1. Match sur le nom de ville
         for loc in locations:
             addr = loc.get("address", {})
             city_norm = normalize(addr.get("city", ""))
@@ -154,14 +143,12 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
                 best = loc
                 break
 
-        # 2. Sinon résultat sans rue (= localité)
         if not best:
             for loc in locations:
                 if not loc.get("address", {}).get("street"):
                     best = loc
                     break
 
-        # 3. Fallback premier résultat
         if not best:
             best = locations[0]
             addr = best.get("address", {})
@@ -185,6 +172,7 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
     except requests.RequestException as e:
         print(f"      ⚠️ Erreur géocodage PTV '{ville}' : {e}")
         return None
+
 
 
 # ==========================================
@@ -216,38 +204,50 @@ def get_waypoints(origin: str, dest: str) -> list:
     for route in routes:
         origine_ref = route.get("origine", "")
         dest_ref    = route.get("destination", "")
-
-        # Quick reject par normalisation texte d'abord (pas de géocodage)
         norm_orig_ref = normalize(origine_ref)
         norm_dest_ref = normalize(dest_ref)
 
-        # Si les noms ne matchent pas du tout, vérifier par distance GPS
         match_dep = (norm_orig_ref == norm_origin)
         match_arr = (norm_dest_ref == norm_dest)
 
-        # Seulement si pas de match texte → géocoder
-        if not match_dep and coords_origin:
-            coords_ref_dep = geocoder_ville(origine_ref)
-            if coords_ref_dep:
-                dist_dep = haversine(coords_origin[0], coords_origin[1],
-                                     coords_ref_dep[0], coords_ref_dep[1])
-                match_dep = dist_dep <= RAYON_KM
+        # ── Match parfait texte → retourner direct ──
+        if match_dep and match_arr:
+            waypoints = route.get("waypoints", [])
+            print(f"   ✅ Route manuelle trouvée : {origine_ref} → {dest_ref} "
+                  f"({len(waypoints)} waypoints)")
+            return waypoints
 
+        # ── Skip si aucun match texte et pas de coords pour comparer ──
+        if not match_dep and not coords_origin:
+            continue
+        if not match_arr and not coords_dest:
+            continue
+
+        # ── Géocoder seulement si nécessaire ──
         if not match_dep:
-            continue  # Skip tôt — pas besoin de checker l'arrivée
+            coords_ref_dep = geocoder_ville(origine_ref)
+            if not coords_ref_dep:
+                continue
+            if haversine(coords_origin[0], coords_origin[1],
+                        coords_ref_dep[0], coords_ref_dep[1]) > RAYON_KM:
+                continue
+            match_dep = True
 
-        if not match_arr and coords_dest:
+        if not match_arr:
             coords_ref_arr = geocoder_ville(dest_ref)
-            if coords_ref_arr:
-                dist_arr = haversine(coords_dest[0], coords_dest[1],
-                                     coords_ref_arr[0], coords_ref_arr[1])
-                match_arr = dist_arr <= RAYON_KM
+            if not coords_ref_arr:
+                continue
+            if haversine(coords_dest[0], coords_dest[1],
+                        coords_ref_arr[0], coords_ref_arr[1]) > RAYON_KM:
+                continue
+            match_arr = True
 
         if match_dep and match_arr:
             waypoints = route.get("waypoints", [])
             print(f"   ✅ Route manuelle trouvée : {origine_ref} → {dest_ref} "
                   f"({len(waypoints)} waypoints)")
             return waypoints
+
 
     # ── 2. Sinon : détection automatique villes-jalons ──
     if coords_origin and coords_dest:
@@ -262,4 +262,3 @@ def get_waypoints(origin: str, dest: str) -> list:
 
     print(f"   📍 Aucune route préférentielle → PTV choisit le trajet")
     return []
-
