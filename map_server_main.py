@@ -209,41 +209,33 @@ def _decode_polyline(encoded: str) -> list:
     return coords
 
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool) -> dict:
-    """Appel PTV routing v1 — waypoints en query string."""
+    """Appel PTV routing v1 GET — waypoints répétés en query string."""
 
-    params = {
-        "profile": "EUR_TRAILER_TRUCK",
-        "results": "POLYLINE,TOLL_COSTS",
-        "options[currency]": "EUR",
-    }
+    query_params = [
+        ("profile", "EUR_TRAILER_TRUCK"),
+        ("results", "POLYLINE,TOLL_COSTS"),
+        ("options[currency]", "EUR"),
+    ]
 
-    # Waypoints en query string : waypoint0, waypoint1, etc.
-    for i, wp_str in enumerate(waypoints_list):
+    for wp_str in waypoints_list:
         parts = wp_str.split(",")
         lat = float(parts[0].strip())
         lng = float(parts[1].strip())
-
-        if i == 0 or i == len(waypoints_list) - 1:
-            # Départ / Arrivée
-            params[f"waypoints[{i}]"] = f"{lat},{lng}"
-        else:
-            # Intermédiaires — OffRoad pour ne pas forcer l'arrêt
-            params[f"waypoints[{i}]"] = f"{lat},{lng}"
-            params[f"waypoints[{i}].type"] = "OffRoad"
+        query_params.append(("waypoint", f"{lat},{lng}"))
 
     avoid = []
     if avoid_tolls:    avoid.append("TOLL_ROADS")
     if avoid_highways: avoid.append("HIGHWAYS")
     if avoid:
-        params["options[avoid]"] = ",".join(avoid)
+        query_params.append(("options[avoid]", ",".join(avoid)))
 
-    print(f"PTV PARAMS: {params}")
+    print(f"PTV QUERY: {query_params}")
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.myptv.com/routing/v1/routes",
             headers={"apiKey": PTV_API_KEY},
-            params=params,
+            params=query_params,
             timeout=30,
         )
 
