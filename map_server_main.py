@@ -217,18 +217,19 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
         ("options[currency]", "EUR"),
     ]
 
-    for wp_str in waypoints_list:
+   # 🌟 AJOUT DE "i, " et "enumerate" ICI :
+    for i, wp_str in enumerate(waypoints_list):
         parts = wp_str.split(",")
         lat = float(parts[0].strip())
         lng = float(parts[1].strip())
-        # 🌟 Si c'est une étape intermédiaire (ni le tout premier, ni le tout dernier point)
+        
+        # Si c'est une étape intermédiaire (ni le tout premier, ni le tout dernier point)
         if 0 < i < len(waypoints_list) - 1:
             # On ajoute un rayon de tolérance de 5000 mètres (5 km)
             query_params.append(("waypoints", f"{lat},{lng};radius=5000"))
         else:
             # Pour le vrai Départ et la vraie Arrivée, on reste précis au mètre près
             query_params.append(("waypoints", f"{lat},{lng}"))
-
     avoid = []
     if avoid_tolls:    avoid.append("TOLL_ROADS")
     if avoid_highways: avoid.append("HIGHWAYS")
