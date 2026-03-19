@@ -78,7 +78,12 @@ def normalize(text: str) -> str:
 # GÉOCODAGE PTV
 # ==========================================
 def geocoder_ville(ville: str) -> tuple[float, float] | None:
-    key = normalize(ville)
+    # ── Normaliser abréviations courantes ──
+    ville_clean = ville
+    ville_clean = re.sub(r'\bST\b', 'SAINT', ville_clean, flags=re.IGNORECASE)
+    ville_clean = re.sub(r'\bSTE\b', 'SAINTE', ville_clean, flags=re.IGNORECASE)
+    
+    key = normalize(ville_clean)
 
     if key in _geocache:
         coords = _geocache[key]
