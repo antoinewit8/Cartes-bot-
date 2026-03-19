@@ -230,9 +230,6 @@ async def _geocode(address: str):
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool) -> dict:
     """Appel PTV routing POST — waypoints intermédiaires en OffRoad."""
 
-    results_values = ["POLYLINE", "TOLL_COSTS"]
-
-    # Construction des waypoints POST
     body_waypoints = []
 
     for i, wp_str in enumerate(waypoints_list):
@@ -244,21 +241,20 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
             body_waypoints.append({
                 "$type": "OnRoadWaypoint",
                 "location": {
-                    "offRoadCoordinate": {
-                        "latitude": lat,
-                        "longitude": lng
-                    }
+                    "latitude": lat,
+                    "longitude": lng
                 }
             })
         else:
-            # Intermédiaires → OffRoadWaypoint (PTV passe à côté, pas dessus)
+            # Intermédiaires → OffRoadWaypoint avec rayon de tolérance
             body_waypoints.append({
                 "$type": "OffRoadWaypoint",
                 "location": {
                     "offRoadCoordinate": {
                         "latitude": lat,
                         "longitude": lng
-                    }
+                    },
+                    "matchSideOfStreet": False
                 }
             })
 
@@ -266,7 +262,7 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
 
     params = {
         "profile": "EUR_TRAILER_TRUCK",
-        "results": ",".join(results_values),
+        "results": "POLYLINE,TOLL_COSTS",
         "options[currency]": "EUR",
     }
 
@@ -286,9 +282,11 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
         )
 
     if resp.status_code != 200:
+        print(f"PTV ERROR {resp.status_code}: {resp.text[:1000]}")
         raise HTTPException(502, f"PTV error {resp.status_code}: {resp.text[:500]}")
 
     return resp.json()
+
 
 
 
