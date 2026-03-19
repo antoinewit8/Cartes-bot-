@@ -228,28 +228,59 @@ async def _geocode(address: str):
         return None
 
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool) -> dict:
-    """Appel PTV routing avec waypoints, options d'évitement → dict réponse."""
-    params = [("waypoints", w) for w in waypoints_list]
-    params.append(("profile", "EUR_TRAILER_TRUCK"))
-    params.append(("results", "POLYLINE,TOLL_COSTS"))
+    """Appel PTV routing. Les waypoints intermédiaires sont envoyés en offRoad
+       avec un rayon de tolérance pour éviter les détours."""
 
+    # Construction du body JSON pour POST
+    body = {
+        "profile": "EUR_TRAILER_TRUCK",
+        "routingType": "FAST",
+        "waypoints": [],
+        "options": {},
+    }
+
+    for i, wp_str in enumerate(waypoints_list):
+        lat, lng = wp_str.split(",")
+        lat, lng = float(lat), float(lng)
+
+        if i == 0 or i == len(waypoints_list) - 1:
+            # Départ et arrivée → waypoint normal (onRoad)
+            body["waypoints"].append({
+                "$type": "OnRoadWaypoint",
+                "location": {"latitude": lat, "longitude": lng}
+            })
+        else:
+            # Étapes intermédiaires → offRoad avec rayon 500m
+            body["waypoints"].append({
+                "$type": "OffRoadWaypoint",
+                "location": {"latitude": lat, "longitude": lng},
+                "radius": 500
+            })
+
+    # Options d'évitement
     avoid = []
     if avoid_tolls:    avoid.append("TOLL_ROADS")
     if avoid_highways: avoid.append("HIGHWAYS")
     if avoid:
-        params.append(("options[avoid]", ",".join(avoid)))
+        body["options"]["avoid"] = avoid
 
     async with httpx.AsyncClient() as client:
-        resp = await client.get(
+        resp = await client.post(
             "https://api.myptv.com/routing/v1/routes",
-            params=params,
-            headers={"apiKey": PTV_API_KEY},
+            params={"results": "POLYLINE,TOLL_COSTS"},
+            json=body,
+            headers={
+                "apiKey": PTV_API_KEY,
+                "Content-Type": "application/json"
+            },
             timeout=30,
         )
 
     if resp.status_code != 200:
-        raise HTTPException(status_code=502,
-                            detail=f"PTV error {resp.status_code}: {resp.text[:500]}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"PTV error {resp.status_code}: {resp.text[:500]}"
+        )
 
     return resp.json()
 
