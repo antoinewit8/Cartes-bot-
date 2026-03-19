@@ -368,26 +368,40 @@ async def recalculate_drag(data: RecalcDragRequest):
 
     waypoints_list = [f"{wp.lat},{wp.lng}" for wp in data.waypoints]
 
-    ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways)
+    # ── DEBUG : log ce qu'on envoie à PTV ──
+    print("="*60)
+    print(f"DRAG RECALC — {len(waypoints_list)} waypoints")
+    for i, wp in enumerate(waypoints_list):
+        print(f"  [{i}] {wp}")
+    print("="*60)
+
+    try:
+        ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways)
+    except HTTPException as e:
+        print(f"PTV a planté : {e.detail}")
+        raise
+    except Exception as e:
+        print(f"ERREUR INATTENDUE : {type(e).__name__}: {e}")
+        raise HTTPException(500, f"Erreur interne: {e}")
 
     distance_m, duration_s = _extract_distance_duration(ptv)
     prix_peage = _extract_toll(ptv)
     coords     = _extract_polyline(ptv)
 
-    if data.route_id:
-        # On prépare juste les 4 infos qui ont changé
+    # ── DEBUG : log ce que PTV renvoie ──
+    print(f"RÉSULTAT PTV : dist={distance_m}m, dur={duration_s}s, peage={prix_peage}, coords={len(coords)} points")
+
+    if data.route_id and FIREBASE_URL:
         update_data = {
             "polyline":    coords,
             "distance_km": round(distance_m / 1000, 1),
             "duration_h":  round(duration_s / 3600, 2),
             "prix_peage":  round(prix_peage, 2)
         }
-        # On les envoie directement à ce trajet précis dans Firebase (Instantané)
-        if FIREBASE_URL:
-            try:
-                httpx.patch(f"{FIREBASE_URL}/routes/{data.route_id}.json", json=update_data, timeout=10)
-            except Exception as e:
-                print(f"Erreur maj Firebase: {e}")
+        try:
+            httpx.patch(f"{FIREBASE_URL}/routes/{data.route_id}.json", json=update_data, timeout=10)
+        except Exception as e:
+            print(f"Erreur maj Firebase: {e}")
 
     return {
         "distance_km": round(distance_m / 1000, 1),
@@ -395,6 +409,7 @@ async def recalculate_drag(data: RecalcDragRequest):
         "prix_peage":  round(prix_peage, 2),
         "polyline":    coords,
     }
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
