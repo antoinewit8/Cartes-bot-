@@ -82,6 +82,7 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
 
     if key in _geocache:
         coords = _geocache[key]
+        print(f"      📦 Cache hit '{ville}' → ({coords[0]:.4f}, {coords[1]:.4f})")
         return (coords[0], coords[1])
 
     if not PTV_API_KEY:
@@ -91,18 +92,34 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
     try:
         params = {"searchText": ville, "language": "fr"}
 
-        # Détecter le pays depuis l'adresse
+        # ── Détecter le pays ──
         ville_lower = ville.lower()
-        if any(p in ville_lower for p in ["belgium", "belgique", "belgi"]):
-            params["countryFilter"] = "BE"
-        elif any(p in ville_lower for p in ["germany", "deutschland"]):
-            params["countryFilter"] = "DE"
-        elif any(p in ville_lower for p in ["netherlands", "nederland"]):
-            params["countryFilter"] = "NL"
-        elif "luxembourg" in ville_lower:
-            params["countryFilter"] = "LU"
-        else:
-            params["countryFilter"] = "FR"
+        COUNTRY_KEYWORDS = {
+            "FR": ["france"],
+            "BE": ["belgium", "belgique", "belgi"],
+            "DE": ["germany", "deutschland", "allemagne"],
+            "NL": ["netherlands", "nederland", "pays-bas"],
+            "LU": ["luxembourg"],
+            "IT": ["italy", "italia", "itali"],
+            "ES": ["spain", "espagne", "españa"],
+            "PT": ["portugal"],
+            "GB": ["united kingdom", "uk", "angleterre"],
+            "CH": ["switzerland", "suisse", "schweiz"],
+            "AT": ["austria", "autriche"],
+            "PL": ["poland", "pologne"],
+            "CZ": ["czech republic", "tchéquie"],
+        }
+
+        country_filter = None
+        for iso, keywords in COUNTRY_KEYWORDS.items():
+            if any(kw in ville_lower for kw in keywords):
+                country_filter = iso
+                break
+
+        if not country_filter:
+            country_filter = "FR"
+
+        params["countryFilter"] = country_filter
 
         response = requests.get(
             PTV_GEO_URL,
@@ -110,34 +127,58 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
             params=params,
             timeout=10
         )
-
         response.raise_for_status()
         data = response.json()
-
         locations = data.get("locations", [])
+
         if not locations:
-            print(f"   ⚠️ Aucun résultat géocodage PTV pour '{ville}'")
+            print(f"      ⚠️ Aucun résultat géocodage pour '{ville}'")
             return None
 
-        loc = locations[0]
-        print(f"      🧪 RAW PTV '{ville}': {json.dumps(loc)[:300]}")
+        # ── Filtrer : privilégier match sur nom de ville, pas rue ──
+        ville_nom = ville.split(",")[0].strip()
+        ville_nom_norm = normalize(ville_nom)
 
-        ref_pos = loc.get("referencePosition", {})
+        best = None
+
+        # 1. Match sur le nom de ville
+        for loc in locations:
+            addr = loc.get("address", {})
+            city_norm = normalize(addr.get("city", ""))
+            if ville_nom_norm in city_norm or city_norm in ville_nom_norm:
+                best = loc
+                break
+
+        # 2. Sinon résultat sans rue (= localité)
+        if not best:
+            for loc in locations:
+                if not loc.get("address", {}).get("street"):
+                    best = loc
+                    break
+
+        # 3. Fallback premier résultat
+        if not best:
+            best = locations[0]
+            addr = best.get("address", {})
+            print(f"      ⚠️ Fallback: '{ville}' → {addr.get('city', '?')}, rue={addr.get('street', '')}")
+
+        print(f"      🧪 RAW PTV '{ville}': {json.dumps(best)[:300]}")
+
+        ref_pos = best.get("referencePosition", {})
         lat = ref_pos.get("lat") or ref_pos.get("latitude")
         lon = ref_pos.get("lon") or ref_pos.get("longitude")
 
         if lat is None or lon is None:
-            print(f"   ⚠️ Structure inattendue pour '{ville}': {ref_pos}")
+            print(f"      ⚠️ Structure inattendue: {ref_pos}")
             return None
 
         _geocache[key] = [lat, lon]
         sauvegarder_cache(_geocache)
-
         print(f"      📍 Géocodé '{ville}' → ({lat:.4f}, {lon:.4f})")
         return (lat, lon)
 
     except requests.RequestException as e:
-        print(f"   ⚠️ Erreur géocodage PTV '{ville}' : {e}")
+        print(f"      ⚠️ Erreur géocodage PTV '{ville}' : {e}")
         return None
 
 
