@@ -208,57 +208,8 @@ def _decode_polyline(encoded: str) -> list:
         coords.append([lat / 1e5, lng / 1e5])
     return coords
 
-async def _geocode(address: str):
-    """Géocode une adresse via PTV → (lat, lon) ou None."""
-    try:
-        async with httpx.AsyncClient() as client:
-            r = await client.get(
-                "https://api.myptv.com/geocoding/v1/locations/searchText",
-                params={"searchText": address, "language": "fr"},
-                headers={"apiKey": PTV_API_KEY},
-                timeout=10,
-            )
-            data = r.json()
-            loc  = data.get("locations", [{}])[0]
-            ref  = loc.get("referencePosition", {})
-            lat  = ref.get("lat") or ref.get("latitude")
-            lon  = ref.get("lon") or ref.get("longitude")
-            return (lat, lon) if lat and lon else None
-    except Exception:
-        return None
-
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool) -> dict:
-    """Appel PTV routing POST — waypoints intermédiaires en OffRoad."""
-
-    body_waypoints = []
-
-    for i, wp_str in enumerate(waypoints_list):
-        parts = wp_str.split(",")
-        lat, lng = float(parts[0].strip()), float(parts[1].strip())
-
-        if i == 0 or i == len(waypoints_list) - 1:
-            # Départ / Arrivée → OnRoadWaypoint
-            body_waypoints.append({
-                "$type": "OnRoadWaypoint",
-                "location": {
-                    "latitude": lat,
-                    "longitude": lng
-                }
-            })
-        else:
-            # Intermédiaires → OffRoadWaypoint avec rayon de tolérance
-            body_waypoints.append({
-                "$type": "OffRoadWaypoint",
-                "location": {
-                    "offRoadCoordinate": {
-                        "latitude": lat,
-                        "longitude": lng
-                    },
-                    "matchSideOfStreet": False
-                }
-            })
-
-    body = {"waypoints": body_waypoints}
+    """Appel PTV routing v1 — waypoints en query string."""
 
     params = {
         "profile": "EUR_TRAILER_TRUCK",
@@ -266,18 +217,33 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
         "options[currency]": "EUR",
     }
 
+    # Waypoints en query string : waypoint0, waypoint1, etc.
+    for i, wp_str in enumerate(waypoints_list):
+        parts = wp_str.split(",")
+        lat = float(parts[0].strip())
+        lng = float(parts[1].strip())
+
+        if i == 0 or i == len(waypoints_list) - 1:
+            # Départ / Arrivée
+            params[f"waypoints[{i}]"] = f"{lat},{lng}"
+        else:
+            # Intermédiaires — OffRoad pour ne pas forcer l'arrêt
+            params[f"waypoints[{i}]"] = f"{lat},{lng}"
+            params[f"waypoints[{i}].type"] = "OffRoad"
+
     avoid = []
     if avoid_tolls:    avoid.append("TOLL_ROADS")
     if avoid_highways: avoid.append("HIGHWAYS")
     if avoid:
         params["options[avoid]"] = ",".join(avoid)
 
+    print(f"PTV PARAMS: {params}")
+
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
+        resp = await client.get(
             "https://api.myptv.com/routing/v1/routes",
-            headers={"apiKey": PTV_API_KEY, "Content-Type": "application/json"},
+            headers={"apiKey": PTV_API_KEY},
             params=params,
-            json=body,
             timeout=30,
         )
 
