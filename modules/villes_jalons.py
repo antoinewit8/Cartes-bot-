@@ -108,6 +108,7 @@ def _is_north_axis(lat_start, lon_start, lat_end, lon_end) -> bool:
 # FONCTION PRINCIPALE
 # ==========================================
 def detecter_villes_jalons(lat_start, lon_start, lat_end, lon_end) -> list:
+    print(f"      🧭 Jalons: ({lat_start:.4f}, {lon_start:.4f}) → ({lat_end:.4f}, {lon_end:.4f})")
     villes_proches = []
 
     # 1. Détection par proximité au segment direct
