@@ -89,25 +89,19 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
         return None
 
     try:
-        # ✅ FIX : détecter le pays depuis l'adresse
-        ville_lower = ville.lower()
-        if "belgium" in ville_lower or "belgique" in ville_lower:
-            country_filter = "BE"
-        elif "germany" in ville_lower or "deutschland" in ville_lower:
-            country_filter = "DE"
-        elif "netherlands" in ville_lower or "nederland" in ville_lower:
-            country_filter = "NL"
-        elif "luxembourg" in ville_lower:
-            country_filter = "LU"
-        else:
-            country_filter = "FR"
+        params = {"searchText": ville, "language": "fr"}
 
-        response = requests.get(
-            PTV_GEO_URL,
-            headers={"apiKey": PTV_API_KEY},
-                    params = {"searchText": ville, "language": "fr"}
-        # N'ajouter countryFilter que si pas d'indication de pays dans l'adresse
-        if not any(p in ville.lower() for p in ["belgium", "germany", "netherlands", "luxembourg", "italia", "spain"]):
+        # Détecter le pays depuis l'adresse
+        ville_lower = ville.lower()
+        if any(p in ville_lower for p in ["belgium", "belgique", "belgi"]):
+            params["countryFilter"] = "BE"
+        elif any(p in ville_lower for p in ["germany", "deutschland"]):
+            params["countryFilter"] = "DE"
+        elif any(p in ville_lower for p in ["netherlands", "nederland"]):
+            params["countryFilter"] = "NL"
+        elif "luxembourg" in ville_lower:
+            params["countryFilter"] = "LU"
+        else:
             params["countryFilter"] = "FR"
 
         response = requests.get(
@@ -116,6 +110,7 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
             params=params,
             timeout=10
         )
+
         response.raise_for_status()
         data = response.json()
 
@@ -144,6 +139,7 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
     except requests.RequestException as e:
         print(f"   ⚠️ Erreur géocodage PTV '{ville}' : {e}")
         return None
+
 
 # ==========================================
 # DISTANCE HAVERSINE
