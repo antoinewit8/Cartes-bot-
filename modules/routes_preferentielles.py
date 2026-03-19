@@ -89,14 +89,31 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
         return None
 
     try:
+        # ✅ FIX : détecter le pays depuis l'adresse
+        ville_lower = ville.lower()
+        if "belgium" in ville_lower or "belgique" in ville_lower:
+            country_filter = "BE"
+        elif "germany" in ville_lower or "deutschland" in ville_lower:
+            country_filter = "DE"
+        elif "netherlands" in ville_lower or "nederland" in ville_lower:
+            country_filter = "NL"
+        elif "luxembourg" in ville_lower:
+            country_filter = "LU"
+        else:
+            country_filter = "FR"
+
         response = requests.get(
             PTV_GEO_URL,
             headers={"apiKey": PTV_API_KEY},
-            params={
-                "searchText": ville,
-                "countryFilter": "FR",
-                "language": "fr"
-            },
+                    params = {"searchText": ville, "language": "fr"}
+        # N'ajouter countryFilter que si pas d'indication de pays dans l'adresse
+        if not any(p in ville.lower() for p in ["belgium", "germany", "netherlands", "luxembourg", "italia", "spain"]):
+            params["countryFilter"] = "FR"
+
+        response = requests.get(
+            PTV_GEO_URL,
+            headers={"apiKey": PTV_API_KEY},
+            params=params,
             timeout=10
         )
         response.raise_for_status()
