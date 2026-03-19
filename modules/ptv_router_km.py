@@ -201,7 +201,7 @@ def decode_polyline(encoded: str) -> list:
 
 def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, calculer_peage=False):
     """
-    Calcule l'itinéraire via PTV POST /routes avec waypoints pass-through.
+    Calcule l'itinéraire via PTV API (GET) avec le paramètre waypoints et un radius de tolérance.
     """
     
     # 1. Géocodage des waypoints intermédiaires
@@ -235,69 +235,39 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
             else:
                 print(f"      ⚠️  Waypoint ignoré : {wp_address}")
 
-    # 2. Construction des waypoints pour l'URL GET
-    # Format PTV : les waypoints intermédiaires ne sont PAS des arrêts
-    # On ne peut pas changer le type en GET → on passe en POST
-    
+    # 2. Préparation des paramètres pour la requête GET
     results_values = ["POLYLINE"]
     if calculer_peage:
         results_values.append("TOLL_COSTS")
 
-    # 3. Construction du body POST
-    body_waypoints = []
-    
-    # Départ
-    body_waypoints.append({
-        "$type": "OnRoadWaypoint",
-        "location": {
-            "offRoadCoordinate": {
-                "latitude": lat_start,
-                "longitude": lon_start
-            }
-        }
-    })
-    
-    # Waypoints intermédiaires = OffRoadWaypoint (PTV passe À CÔTÉ, pas dessus)
-    for lat, lon in waypoints_coords:
-        body_waypoints.append({
-            "$type": "OffRoadWaypoint",
-            "location": {
-                "offRoadCoordinate": {
-                    "latitude": lat,
-                    "longitude": lon
-                }
-            }
-        })
-    
-    # Arrivée
-    body_waypoints.append({
-        "$type": "OnRoadWaypoint",
-        "location": {
-            "offRoadCoordinate": {
-                "latitude": lat_end,
-                "longitude": lon_end
-            }
-        }
-    })
-
-    body = {"waypoints": body_waypoints}
-    
-    params = {
-        "profile": VEHICLE_PROFILE,
-        "results": ",".join(results_values),
-    }
+    query_params = [
+        ("profile", VEHICLE_PROFILE),
+        ("results", ",".join(results_values)),
+    ]
     if calculer_peage:
-        params["options[currency]"] = "EUR"
+        query_params.append(("options[currency]", "EUR"))
 
-    print(f"      🗺️  {len(body_waypoints)} points ({len(waypoints_coords)} intermédiaires)")
+    # 3. Rassemblement de tous les points (Départ + Intermédiaires + Arrivée)
+    all_points = [(lat_start, lon_start)] + waypoints_coords + [(lat_end, lon_end)]
+    print(f"      🗺️  {len(all_points)} points au total ({len(waypoints_coords)} intermédiaires)")
 
+    # 4. Ajout des points avec "radius=5000" pour les étapes intermédiaires
+    for i, (lat, lon) in enumerate(all_points):
+        if 0 < i < len(all_points) - 1:
+            # Étape intermédiaire : on laisse 5km de tolérance
+            query_params.append(("waypoints", f"{lat},{lon};radius=5000"))
+        else:
+            # Vrai Départ / Vraie Arrivée : précision stricte
+            query_params.append(("waypoints", f"{lat},{lon}"))
+
+    # 5. Appel à l'API PTV
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = requests.post(
+            # On utilise GET comme sur le serveur Render
+            response = requests.get(
                 f"{BASE_URL}/routes",
-                headers={**HEADERS, "Content-Type": "application/json"},
-                params=params,
-                json=body,
+                headers=HEADERS,
+                params=query_params,
                 timeout=30
             )
             
@@ -315,6 +285,7 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
             km = round(data.get("distance", 0) / 1000, 1)
             travel_time_h = round(data.get("travelTime", 0) / 3600, 2)
 
+            # Extraction de la ligne pour la carte
             polyline_raw = data.get("polyline", None)
             polyline_coords = []
 
@@ -327,6 +298,7 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
                 except Exception as e:
                     print(f"      ⚠️ Extraction polyline échouée : {e}")
 
+            # Extraction du péage
             prix_peage = 0.0
             if calculer_peage:
                 toll_data = data.get("toll", {}).get("costs", {})
