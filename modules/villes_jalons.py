@@ -1,13 +1,12 @@
 """
 Villes-jalons automatiques pour forcer les axes routiers PL.
-Si le trajet passe à moins de 50km d'une ville-jalon, elle devient waypoint.
+Si le trajet passe à moins de 35km d'une ville-jalon, elle devient waypoint.
 """
 
 import math
 
 # ==========================================
 # VILLES-JALONS (lat, lon)
-# Coordonnées approximatives des périphéries
 # ==========================================
 
 VILLES_JALONS = {
@@ -52,19 +51,12 @@ VILLES_JALONS = {
 
 # ==========================================
 # AXES STRATÉGIQUES
-# N12 = Est-Ouest latitude ~48.3-48.8
-# N2  = Nord latitude ~49.0-50.2
 # ==========================================
 
-AXE_N12 = [
-    "Dreux", "Alençon", "Mayenne", "Laval"
-]
+AXE_N12 = ["Dreux", "Alençon", "Mayenne", "Laval"]
+AXE_N2  = ["Soissons", "Laon", "Cambrai"]
 
-AXE_N2 = [
-    "Soissons", "Laon", "Cambrai"
-]
-
-RAYON_DETECTION_KM = 50
+RAYON_DETECTION_KM = 35  # réduit de 50 à 35 pour éviter les faux positifs
 
 
 # ==========================================
@@ -82,10 +74,9 @@ def _haversine(lat1, lon1, lat2, lon2) -> float:
 
 
 # ==========================================
-# POINT LE PLUS PROCHE SUR UN SEGMENT
+# DISTANCE POINT → SEGMENT
 # ==========================================
 def _distance_point_to_segment(px, py, ax, ay, bx, by):
-    """Distance (approx en km) d'un point P au segment AB."""
     dx, dy = bx - ax, by - ay
     if dx == 0 and dy == 0:
         return _haversine(px, py, ax, ay)
@@ -96,10 +87,9 @@ def _distance_point_to_segment(px, py, ax, ay, bx, by):
 
 
 # ==========================================
-# DÉTECTION AXE EST-OUEST
+# DÉTECTION AXES
 # ==========================================
 def _is_east_west(lat_start, lon_start, lat_end, lon_end) -> bool:
-    """Trajet principalement Est-Ouest entre lat 47.5 et 49.5."""
     lat_moy = (lat_start + lat_end) / 2
     delta_lon = abs(lon_end - lon_start)
     delta_lat = abs(lat_end - lat_start)
@@ -109,8 +99,6 @@ def _is_east_west(lat_start, lon_start, lat_end, lon_end) -> bool:
 
 
 def _is_north_axis(lat_start, lon_start, lat_end, lon_end) -> bool:
-    """Trajet passant par la zone nord (lat > 49)."""
-    lat_moy = (lat_start + lat_end) / 2
     lat_max = max(lat_start, lat_end)
     delta_lon = abs(lon_end - lon_start)
     return lat_max >= 49.0 and delta_lon > 2.0
@@ -120,10 +108,6 @@ def _is_north_axis(lat_start, lon_start, lat_end, lon_end) -> bool:
 # FONCTION PRINCIPALE
 # ==========================================
 def detecter_villes_jalons(lat_start, lon_start, lat_end, lon_end) -> list:
-    """
-    Retourne une liste ordonnée de waypoints "lat, lon" (strings)
-    pour les villes-jalons détectées sur le trajet.
-    """
     villes_proches = []
 
     # 1. Détection par proximité au segment direct
@@ -134,33 +118,41 @@ def detecter_villes_jalons(lat_start, lon_start, lat_end, lon_end) -> list:
             lat_end, lon_end
         )
         if dist <= RAYON_DETECTION_KM:
-            # Distance depuis le départ (pour tri)
             dist_from_start = _haversine(lat_start, lon_start, vlat, vlon)
             villes_proches.append((ville, vlat, vlon, dist_from_start, dist))
 
-    # 2. Forcer les axes N12/N2 si trajet Est-Ouest
+    # 2. Axes forcés — TOUJOURS vérifier la proximité au segment
     if _is_east_west(lat_start, lon_start, lat_end, lon_end):
         for ville in AXE_N12:
             if not any(v[0] == ville for v in villes_proches):
                 vlat, vlon = VILLES_JALONS[ville]
-                # Vérifier que la ville est entre départ et arrivée en longitude
-                lon_min = min(lon_start, lon_end) - 0.5
-                lon_max = max(lon_start, lon_end) + 0.5
-                if lon_min <= vlon <= lon_max:
+                dist_seg = _distance_point_to_segment(
+                    vlat, vlon,
+                    lat_start, lon_start,
+                    lat_end, lon_end
+                )
+                if dist_seg <= RAYON_DETECTION_KM:
                     dist_from_start = _haversine(lat_start, lon_start, vlat, vlon)
-                    villes_proches.append((ville, vlat, vlon, dist_from_start, 0))
-                    print(f"      🛣️  N12 forcé : {ville}")
+                    villes_proches.append((ville, vlat, vlon, dist_from_start, dist_seg))
+                    print(f"      🛣️  N12 forcé : {ville} ({dist_seg:.0f}km du segment)")
+                else:
+                    print(f"      🛣️  N12 ignoré : {ville} ({dist_seg:.0f}km trop loin)")
 
     if _is_north_axis(lat_start, lon_start, lat_end, lon_end):
         for ville in AXE_N2:
             if not any(v[0] == ville for v in villes_proches):
                 vlat, vlon = VILLES_JALONS[ville]
-                lon_min = min(lon_start, lon_end) - 0.5
-                lon_max = max(lon_start, lon_end) + 0.5
-                if lon_min <= vlon <= lon_max:
+                dist_seg = _distance_point_to_segment(
+                    vlat, vlon,
+                    lat_start, lon_start,
+                    lat_end, lon_end
+                )
+                if dist_seg <= RAYON_DETECTION_KM:
                     dist_from_start = _haversine(lat_start, lon_start, vlat, vlon)
-                    villes_proches.append((ville, vlat, vlon, dist_from_start, 0))
-                    print(f"      🛣️  N2 forcé : {ville}")
+                    villes_proches.append((ville, vlat, vlon, dist_from_start, dist_seg))
+                    print(f"      🛣️  N2 forcé : {ville} ({dist_seg:.0f}km du segment)")
+                else:
+                    print(f"      🛣️  N2 ignoré : {ville} ({dist_seg:.0f}km trop loin)")
 
     # 3. Tri par distance depuis le départ
     villes_proches.sort(key=lambda x: x[3])
@@ -172,3 +164,4 @@ def detecter_villes_jalons(lat_start, lon_start, lat_end, lon_end) -> list:
         print(f"      📌 Jalon auto : {ville} ({dist_seg:.0f}km du trajet, {dist_start:.0f}km du départ)")
 
     return waypoints
+
