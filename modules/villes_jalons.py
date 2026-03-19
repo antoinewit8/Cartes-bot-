@@ -10,44 +10,45 @@ import math
 # ==========================================
 
 VILLES_JALONS = {
-    # Sud / Massif Central
-    "Puy-en-Velay":     (45.0426,  3.8849),
-    "Mende":            (44.5188,  3.4986),
-    "Rodez":            (44.3516,  2.5735),
+    # Sud / Massif Central (points sur N88, A75, RN)
+    "Puy-en-Velay":     (45.0540,  3.8530),   # N88 sortie sud
+    "Mende":            (44.5060,  3.4710),   # N88 contournement
+    "Rodez":            (44.3660,  2.6050),   # RN88 échangeur nord
 
-    # Ouest
-    "Châteaubriant":    (47.7161, -1.3760),
-    "Mayenne":          (48.3024, -0.6148),
-    "Laval":            (48.0784, -0.7669),
-    "Le Mans":          (48.0061,  0.1996),
+    # Ouest (points sur N171, N162, A81)
+    "Châteaubriant":    (47.7200, -1.3550),   # N171 contournement
+    "Mayenne":          (48.2980, -0.6330),   # N162 sortie
+    "Laval":            (48.0850, -0.7340),   # A81 échangeur
+    "Le Mans":          (48.0250,  0.2200),   # A28/A81 échangeur
 
     # Normandie / N12
-    "Alençon":          (48.4322,  0.0913),
-    "Argentan":         (48.7448, -0.0206),
-    "Dreux":            (48.7356,  1.3662),
+    "Alençon":          (48.4450,  0.1150),   # N12 contournement
+    "Argentan":         (48.7380, -0.0050),   # N26 échangeur
+    "Dreux":            (48.7250,  1.3900),   # N12 contournement sud
 
-    # Nord
-    "Amiens":           (49.8941,  2.2958),
-    "Albert":           (50.0007,  2.6508),
-    "Bapaume":          (50.1039,  2.8511),
-    "Cambrai":          (50.1764,  3.2354),
-    "Laon":             (49.5637,  3.6241),
-    "Soissons":         (49.3817,  3.3236),
+    # Nord (points sur A1, A26, N2, N44)
+    "Amiens":           (49.8700,  2.3350),   # A29/A16 échangeur
+    "Albert":           (50.0050,  2.6350),   # D929/N29 contournement
+    "Bapaume":          (50.1100,  2.8550),   # A1 sortie Bapaume
+    "Cambrai":          (50.1900,  3.2100),   # A26 échangeur
+    "Laon":             (49.5780,  3.6450),   # N2 contournement est
+    "Soissons":         (49.3700,  3.3450),   # N2 contournement sud
 
     # Ardennes
-    "Vouziers":         (49.3956,  4.7014),
+    "Vouziers":         (49.3850,  4.6850),   # D946 contournement
 
-    # Est
-    "Commercy":         (48.7618,  5.5915),
-    "Nancy":            (48.6921,  6.1844),
-    "Verdun":           (49.1598,  5.3823),
-    "Épinal":           (48.1726,  6.4510),
-    "Chaumont":         (48.1135,  5.1390),
+    # Est (points sur A31, A4, N4)
+    "Commercy":         (48.7550,  5.5700),   # N4 contournement
+    "Nancy":            (48.7100,  6.2100),   # A31 échangeur sud
+    "Verdun":           (49.1750,  5.3650),   # N3/A4 échangeur
+    "Épinal":           (48.1850,  6.4350),   # N57 contournement
+    "Chaumont":         (48.1050,  5.1200),   # N67 contournement
 
     # Centre / Champagne
-    "Troyes":           (48.2973,  4.0744),
-    "Orléans":          (47.9029,  1.9039),
+    "Troyes":           (48.3100,  4.1000),   # A5/A26 échangeur
+    "Orléans":          (47.9200,  1.9300),   # A10 échangeur nord
 }
+
 
 # ==========================================
 # AXES STRATÉGIQUES
