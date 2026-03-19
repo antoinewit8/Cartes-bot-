@@ -128,7 +128,7 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
             timeout=10
         )
         response.raise_for_status()
-                data = response.json()
+        data = response.json()
         locations = data.get("locations", [])
 
         if not locations:
