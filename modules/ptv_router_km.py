@@ -248,7 +248,7 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
     
     # Waypoints intermédiaires
     for lat, lon in waypoints_coords:
-        wp_strings.append(f"{lat},{lon}")
+        wp_strings.append(f"{lat},{lon}!roadAccess")
     
     # Point d'arrivée
     wp_strings.append(f"{lat_end},{lon_end}")
