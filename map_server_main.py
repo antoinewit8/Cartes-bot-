@@ -228,23 +228,60 @@ async def _geocode(address: str):
         return None
 
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool) -> dict:
-    """Appel PTV routing GET — méthode stable."""
+    """Appel PTV routing POST — waypoints intermédiaires en OffRoad."""
 
-    params = [("waypoints", w) for w in waypoints_list]
-    params.append(("profile", "EUR_TRAILER_TRUCK"))
-    params.append(("results", "POLYLINE,TOLL_COSTS"))
+    results_values = ["POLYLINE", "TOLL_COSTS"]
+
+    # Construction des waypoints POST
+    body_waypoints = []
+
+    for i, wp_str in enumerate(waypoints_list):
+        parts = wp_str.split(",")
+        lat, lng = float(parts[0].strip()), float(parts[1].strip())
+
+        if i == 0 or i == len(waypoints_list) - 1:
+            # Départ / Arrivée → OnRoadWaypoint
+            body_waypoints.append({
+                "$type": "OnRoadWaypoint",
+                "location": {
+                    "offRoadCoordinate": {
+                        "latitude": lat,
+                        "longitude": lng
+                    }
+                }
+            })
+        else:
+            # Intermédiaires → OffRoadWaypoint (PTV passe à côté, pas dessus)
+            body_waypoints.append({
+                "$type": "OffRoadWaypoint",
+                "location": {
+                    "offRoadCoordinate": {
+                        "latitude": lat,
+                        "longitude": lng
+                    }
+                }
+            })
+
+    body = {"waypoints": body_waypoints}
+
+    params = {
+        "profile": "EUR_TRAILER_TRUCK",
+        "results": ",".join(results_values),
+        "options[currency]": "EUR",
+    }
 
     avoid = []
     if avoid_tolls:    avoid.append("TOLL_ROADS")
     if avoid_highways: avoid.append("HIGHWAYS")
     if avoid:
-        params.append(("options[avoid]", ",".join(avoid)))
+        params["options[avoid]"] = ",".join(avoid)
 
     async with httpx.AsyncClient() as client:
-        resp = await client.get(
+        resp = await client.post(
             "https://api.myptv.com/routing/v1/routes",
+            headers={"apiKey": PTV_API_KEY, "Content-Type": "application/json"},
             params=params,
-            headers={"apiKey": PTV_API_KEY},
+            json=body,
             timeout=30,
         )
 
