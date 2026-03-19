@@ -239,29 +239,55 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
             else:
                 print(f"      ⚠️  Waypoint ignoré : {wp_address}")
 
-      # 2. Construction du body JSON pour PTV Routing v1 (mode POST)
-    request_waypoints = []
-
+         # 2. Construction des waypoints en query string format PTV
+    # Format: "latitude,longitude" séparés dans une liste
+    wp_strings = []
+    
     # Point de départ
-    request_waypoints.append({
-        "latitude": lat_start,
-        "longitude": lon_start
-    })
-
+    wp_strings.append(f"{lat_start},{lon_start}")
+    
     # Waypoints intermédiaires
     for lat, lon in waypoints_coords:
-        request_waypoints.append({
-            "latitude": lat,
-            "longitude": lon
-        })
-
+        wp_strings.append(f"{lat},{lon}")
+    
     # Point d'arrivée
-    request_waypoints.append({
-        "latitude": lat_end,
-        "longitude": lon_end
-    })
+    wp_strings.append(f"{lat_end},{lon_end}")
+    
+    print(f"      🗺️  {len(wp_strings)} points")
 
-    print(f"      🗺️  {len(request_waypoints)} points")
+    # 3. Appel API PTV en GET (pas POST)
+    results_values = ["POLYLINE"]
+    if calculer_peage:
+        results_values.append("TOLL_COSTS")
+
+    params = {
+        "waypoints": "&waypoints=".join(wp_strings),
+        "profile": VEHICLE_PROFILE,
+        "results": ",".join(results_values),
+    }
+    if calculer_peage:
+        params["options[currency]"] = "EUR"
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            # Construire l'URL manuellement car requests ne gère pas bien les params répétés
+            wp_query = "&".join([f"waypoints={wp}" for wp in wp_strings])
+            other_params = f"profile={VEHICLE_PROFILE}&results={','.join(results_values)}"
+            if calculer_peage:
+                other_params += "&options[currency]=EUR"
+            
+            url = f"{BASE_URL}/routes?{wp_query}&{other_params}"
+            
+            print(f"      📦 URL: {url[:200]}...")
+            
+            response = requests.get(
+                url,
+                headers=HEADERS,
+                timeout=30
+            )
+            
+            print(f"      🔗 PTV Status: {response.status_code}")
+
 
 
     # 3. Appel API PTV en POST
