@@ -199,17 +199,15 @@ def decode_polyline(encoded: str) -> list:
         coords.append([lat / 1e5, lon / 1e5])
     return coords
 
-def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, calculer_peage=False, matching_radius=500):
+def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, calculer_peage=False):
     """
-    Calcule l'itinéraire avec waypoints souples (rayon de tolérance).
-    matching_radius : rayon en mètres pour accrocher le waypoint à la route la plus proche.
+    Calcule l'itinéraire via PTV POST /routes avec waypoints pass-through.
     """
     
     # 1. Géocodage des waypoints intermédiaires
     waypoints_coords = []
     if waypoints:
         for wp_address in waypoints:
-            # Si c'est déjà un tuple/list de coordonnées (depuis la carte)
             if isinstance(wp_address, (list, tuple)) and len(wp_address) == 2:
                 try:
                     lat, lon = float(wp_address[0]), float(wp_address[1])
@@ -219,7 +217,6 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
                 except (ValueError, TypeError):
                     pass
             
-            # Si c'est une string "lat, lon"
             if isinstance(wp_address, str) and "," in wp_address:
                 parts = wp_address.split(",")
                 if len(parts) == 2:
@@ -231,7 +228,6 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
                     except ValueError:
                         pass
             
-            # Sinon géocodage par nom
             coords = geocode_address(wp_address)
             if coords:
                 waypoints_coords.append(coords)
@@ -239,64 +235,53 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
             else:
                 print(f"      ⚠️  Waypoint ignoré : {wp_address}")
 
-         # 2. Construction des waypoints en query string format PTV
-    # Format: "latitude,longitude" séparés dans une liste
-    wp_strings = []
+    # 2. Construction des waypoints pour l'URL GET
+    # Format PTV : les waypoints intermédiaires ne sont PAS des arrêts
+    # On ne peut pas changer le type en GET → on passe en POST
     
-    # Point de départ
-    wp_strings.append(f"{lat_start},{lon_start}")
+    results_values = ["POLYLINE"]
+    if calculer_peage:
+        results_values.append("TOLL_COSTS")
+
+    # 3. Construction du body POST
+    body_waypoints = []
     
-        # Waypoints intermédiaires avec rayon de tolérance (500m)
-    # PTV passera par la route la plus proche dans ce rayon sans demi-tour
+    # Départ
+    body_waypoints.append({
+        "$type": "OnRoadWaypoint",
+        "location": {
+            "offRoadCoordinate": {
+                "latitude": lat_start,
+                "longitude": lon_start
+            }
+        }
+    })
+    
+    # Waypoints intermédiaires = OffRoadWaypoint (PTV passe À CÔTÉ, pas dessus)
     for lat, lon in waypoints_coords:
-        wp_strings.append(f"{lat},{lon}!onRoad,radius=500")
-
+        body_waypoints.append({
+            "$type": "OffRoadWaypoint",
+            "location": {
+                "offRoadCoordinate": {
+                    "latitude": lat,
+                    "longitude": lon
+                }
+            }
+        })
     
-    # Point d'arrivée
-    wp_strings.append(f"{lat_end},{lon_end}")
+    # Arrivée
+    body_waypoints.append({
+        "$type": "OnRoadWaypoint",
+        "location": {
+            "offRoadCoordinate": {
+                "latitude": lat_end,
+                "longitude": lon_end
+            }
+        }
+    })
+
+    body = {"waypoints": body_waypoints}
     
-    print(f"      🗺️  {len(wp_strings)} points")
-
-    # 3. Appel API PTV en GET (pas POST)
-    results_values = ["POLYLINE"]
-    if calculer_peage:
-        results_values.append("TOLL_COSTS")
-
-    params = {
-        "waypoints": "&waypoints=".join(wp_strings),
-        "profile": VEHICLE_PROFILE,
-        "results": ",".join(results_values),
-    }
-    if calculer_peage:
-        params["options[currency]"] = "EUR"
-
-    for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            # Construire l'URL manuellement car requests ne gère pas bien les params répétés
-            wp_query = "&".join([f"waypoints={wp}" for wp in wp_strings])
-            other_params = f"profile={VEHICLE_PROFILE}&results={','.join(results_values)}"
-            if calculer_peage:
-                other_params += "&options[currency]=EUR"
-            
-            url = f"{BASE_URL}/routes?{wp_query}&{other_params}"
-            
-            print(f"      📦 URL: {url[:200]}...")
-            
-            response = requests.get(
-                url,
-                headers=HEADERS,
-                timeout=30
-            )
-            
-            print(f"      🔗 PTV Status: {response.status_code}")
-
-
-
-    # 3. Appel API PTV en POST
-    results_values = ["POLYLINE"]
-    if calculer_peage:
-        results_values.append("TOLL_COSTS")
-
     params = {
         "profile": VEHICLE_PROFILE,
         "results": ",".join(results_values),
@@ -304,9 +289,7 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
     if calculer_peage:
         params["options[currency]"] = "EUR"
 
-    body = {
-        "waypoints": request_waypoints
-    }
+    print(f"      🗺️  {len(body_waypoints)} points ({len(waypoints_coords)} intermédiaires)")
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -319,7 +302,7 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
             )
             
             print(f"      🔗 PTV Status: {response.status_code}")
-            
+
             if response.status_code != 200:
                 print(f"      ❌ PTV Erreur: {response.text[:500]}")
                 if attempt < MAX_RETRIES:
@@ -332,7 +315,6 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
             km = round(data.get("distance", 0) / 1000, 1)
             travel_time_h = round(data.get("travelTime", 0) / 3600, 2)
 
-            # Extraction polyline
             polyline_raw = data.get("polyline", None)
             polyline_coords = []
 
@@ -345,7 +327,6 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
                 except Exception as e:
                     print(f"      ⚠️ Extraction polyline échouée : {e}")
 
-            # Extraction péage
             prix_peage = 0.0
             if calculer_peage:
                 toll_data = data.get("toll", {}).get("costs", {})
@@ -369,6 +350,7 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
             time.sleep(RETRY_DELAY)
 
     return None
+
 
 
 
