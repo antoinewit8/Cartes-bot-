@@ -246,9 +246,11 @@ def calculate_km_route(lat_start, lon_start, lat_end, lon_end, waypoints=None, c
     # Point de départ
     wp_strings.append(f"{lat_start},{lon_start}")
     
-    # Waypoints intermédiaires
+        # Waypoints intermédiaires avec rayon de tolérance (500m)
+    # PTV passera par la route la plus proche dans ce rayon sans demi-tour
     for lat, lon in waypoints_coords:
-        wp_strings.append(f"{lat},{lon}!roadAccess")
+        wp_strings.append(f"{lat},{lon}!onRoad,radius=500")
+
     
     # Point d'arrivée
     wp_strings.append(f"{lat_end},{lon_end}")
