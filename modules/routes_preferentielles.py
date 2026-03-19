@@ -219,7 +219,7 @@ def get_waypoints(origin: str, dest: str) -> list:
     norm_origin   = normalize(origin)
     norm_dest     = normalize(dest)
 
-    # ── 1. Chercher route manuelle exacte ──
+        # ── 1. Chercher route manuelle (texte exact) ──
     for route in routes:
         origine_ref = route.get("origine", "")
         dest_ref    = route.get("destination", "")
@@ -229,20 +229,37 @@ def get_waypoints(origin: str, dest: str) -> list:
         match_dep = (norm_orig_ref == norm_origin)
         match_arr = (norm_dest_ref == norm_dest)
 
-        # ── Match parfait texte → retourner direct ──
         if match_dep and match_arr:
             waypoints = route.get("waypoints", [])
             print(f"   ✅ Route manuelle trouvée : {origine_ref} → {dest_ref} "
                   f"({len(waypoints)} waypoints)")
             return waypoints
 
-        # ── Skip si aucun match texte et pas de coords pour comparer ──
+    # ── 2. Chercher route par proximité GPS (pré-filtre par mots communs) ──
+    mots_origin = set(norm_origin.split())
+    mots_dest   = set(norm_dest.split())
+
+    for route in routes:
+        origine_ref = route.get("origine", "")
+        dest_ref    = route.get("destination", "")
+        norm_orig_ref = normalize(origine_ref)
+        norm_dest_ref = normalize(dest_ref)
+
+        mots_ref_o = set(norm_orig_ref.split())
+        mots_ref_d = set(norm_dest_ref.split())
+
+        # Skip si aucun mot commun ni côté départ ni côté arrivée
+        if not (mots_origin & mots_ref_o) and not (mots_dest & mots_ref_d):
+            continue
+
+        match_dep = (norm_orig_ref == norm_origin)
+        match_arr = (norm_dest_ref == norm_dest)
+
         if not match_dep and not coords_origin:
             continue
         if not match_arr and not coords_dest:
             continue
 
-        # ── Géocoder seulement si nécessaire ──
         if not match_dep:
             coords_ref_dep = geocoder_ville(origine_ref)
             if not coords_ref_dep:
