@@ -128,7 +128,7 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
             timeout=10
         )
         response.raise_for_status()
-        data = response.json()
+                data = response.json()
         locations = data.get("locations", [])
 
         if not locations:
@@ -139,19 +139,35 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
         ville_nom_norm = normalize(ville_nom)
         best = None
 
+        # 1) Match ville exact, sans rue parasite
         for loc in locations:
             addr = loc.get("address", {})
             city_norm = normalize(addr.get("city", ""))
+            street = addr.get("street", "")
+            street_norm = normalize(street)
             if ville_nom_norm in city_norm or city_norm in ville_nom_norm:
-                best = loc
-                break
+                # Rejeter si c'est juste une "Rue de Saint-Quentin" dans une autre ville
+                if ville_nom_norm not in street_norm:
+                    best = loc
+                    break
 
+        # 2) Match ville même avec rue
+        if not best:
+            for loc in locations:
+                addr = loc.get("address", {})
+                city_norm = normalize(addr.get("city", ""))
+                if ville_nom_norm in city_norm or city_norm in ville_nom_norm:
+                    best = loc
+                    break
+
+        # 3) Résultat sans rue
         if not best:
             for loc in locations:
                 if not loc.get("address", {}).get("street"):
                     best = loc
                     break
 
+        # 4) Dernier fallback
         if not best:
             best = locations[0]
             addr = best.get("address", {})
