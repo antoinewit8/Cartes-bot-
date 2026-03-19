@@ -57,7 +57,7 @@ VILLES_JALONS = {
 AXE_N12 = ["Dreux", "Alençon", "Mayenne", "Laval"]
 AXE_N2  = ["Soissons", "Laon", "Cambrai"]
 
-RAYON_DETECTION_KM = 35  # réduit de 50 à 35 pour éviter les faux positifs
+RAYON_DETECTION_KM = 10  # réduit de 50 à 35 pour éviter les faux positifs
 
 
 # ==========================================
