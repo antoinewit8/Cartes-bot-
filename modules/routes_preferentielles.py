@@ -80,7 +80,7 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
     ville_clean = ville
     ville_clean = re.sub(r'\bST\b', 'SAINT', ville_clean, flags=re.IGNORECASE)
     ville_clean = re.sub(r'\bSTE\b', 'SAINTE', ville_clean, flags=re.IGNORECASE)
-    
+
     key = normalize(ville_clean)
 
     if key in _geocache:
@@ -93,20 +93,17 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
         return None
 
     try:
-        # ── Construire les paramètres PTV ──
+        # ── Parser ville, CP, pays ──
         parts = [p.strip() for p in ville_clean.split(',')]
 
         if len(parts) >= 2:
             city_name = parts[0]
-            cp = parts[1] if parts[1].strip().isdigit() else ""
+            cp = parts[1].strip() if parts[1].strip().isdigit() else ""
             pays = parts[-1].strip() if len(parts) >= 3 else ""
-            
-            # Construire searchText avec ville + CP
-            search = city_name
-            if cp:
-                search = f"{city_name}, {cp}"
-            params = {"searchText": search}
-            
+
+            # ── Recherche 1 : ville seule (plus fiable que ville+CP) ──
+            params = {"searchText": city_name}
+
             country_filter = ""
             if pays:
                 country_map = {
@@ -118,8 +115,9 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
             if country_filter:
                 params["countryFilter"] = country_filter
         else:
+            city_name = ville_clean
+            cp = ""
             params = {"searchText": ville_clean, "countryFilter": "FR"}
-
 
         response = requests.get(
             PTV_GEO_URL,
@@ -135,23 +133,56 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
             print(f"      ⚠️ Aucun résultat géocodage pour '{ville}'")
             return None
 
-        ville_nom = ville.split(",")[0].strip()
-        ville_nom_norm = normalize(ville_nom)
+        ville_nom_norm = normalize(city_name)
+        cp_dept = cp[:2] if cp else ""
         best = None
 
-        # 1) Match ville exact, sans rue parasite
-        for loc in locations:
-            addr = loc.get("address", {})
-            city_norm = normalize(addr.get("city", ""))
-            street = addr.get("street", "")
-            street_norm = normalize(street)
-            if ville_nom_norm in city_norm or city_norm in ville_nom_norm:
-                # Rejeter si c'est juste une "Rue de Saint-Quentin" dans une autre ville
-                if ville_nom_norm not in street_norm:
+        # ── 1) Match ville + département (CP) exact, sans rue parasite ──
+        if cp_dept:
+            for loc in locations:
+                addr = loc.get("address", {})
+                city_norm = normalize(addr.get("city", ""))
+                loc_cp = addr.get("postalCode", "")
+                loc_dept = loc_cp[:2] if loc_cp else ""
+                street = addr.get("street", "")
+                street_norm = normalize(street)
+
+                city_match = (ville_nom_norm in city_norm or city_norm in ville_nom_norm)
+                dept_match = (loc_dept == cp_dept)
+                not_street = (ville_nom_norm not in street_norm)
+
+                if city_match and dept_match and not_street:
                     best = loc
                     break
 
-        # 2) Match ville même avec rue
+        # ── 2) Match ville + département, même avec rue ──
+        if not best and cp_dept:
+            for loc in locations:
+                addr = loc.get("address", {})
+                city_norm = normalize(addr.get("city", ""))
+                loc_cp = addr.get("postalCode", "")
+                loc_dept = loc_cp[:2] if loc_cp else ""
+
+                city_match = (ville_nom_norm in city_norm or city_norm in ville_nom_norm)
+                dept_match = (loc_dept == cp_dept)
+
+                if city_match and dept_match:
+                    best = loc
+                    break
+
+        # ── 3) Match ville seul, sans rue parasite ──
+        if not best:
+            for loc in locations:
+                addr = loc.get("address", {})
+                city_norm = normalize(addr.get("city", ""))
+                street_norm = normalize(addr.get("street", ""))
+
+                if (ville_nom_norm in city_norm or city_norm in ville_nom_norm):
+                    if ville_nom_norm not in street_norm:
+                        best = loc
+                        break
+
+        # ── 4) Match ville même avec rue ──
         if not best:
             for loc in locations:
                 addr = loc.get("address", {})
@@ -160,20 +191,25 @@ def geocoder_ville(ville: str) -> tuple[float, float] | None:
                     best = loc
                     break
 
-        # 3) Résultat sans rue
+        # ── 5) Résultat sans rue ──
         if not best:
             for loc in locations:
                 if not loc.get("address", {}).get("street"):
                     best = loc
                     break
 
-        # 4) Dernier fallback
+        # ── 6) Dernier fallback ──
         if not best:
             best = locations[0]
             addr = best.get("address", {})
-            print(f"      ⚠️ Fallback: '{ville}' → {addr.get('city', '?')}, rue={addr.get('street', '')}")
+            print(f"      ⚠️ Fallback: '{ville}' → {addr.get('city', '?')}, "
+                  f"CP={addr.get('postalCode', '?')}, rue={addr.get('street', '')}")
 
-        print(f"      🧪 RAW PTV '{ville}': {json.dumps(best)[:300]}")
+        # ── Log résultat choisi ──
+        addr = best.get("address", {})
+        print(f"      🧪 RAW PTV '{ville}': city={addr.get('city')}, "
+              f"CP={addr.get('postalCode')}, street={addr.get('street', '')}"
+              f" | {json.dumps(best.get('referencePosition', {}))}")
 
         ref_pos = best.get("referencePosition", {})
         lat = ref_pos.get("lat") or ref_pos.get("latitude")
