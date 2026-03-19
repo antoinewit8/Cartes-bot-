@@ -217,38 +217,31 @@ def get_waypoints(origin: str, dest: str) -> list:
         origine_ref = route.get("origine", "")
         dest_ref    = route.get("destination", "")
 
-        # Matching départ
-        match_dep = False
-        if coords_origin:
+        # Quick reject par normalisation texte d'abord (pas de géocodage)
+        norm_orig_ref = normalize(origine_ref)
+        norm_dest_ref = normalize(dest_ref)
+
+        # Si les noms ne matchent pas du tout, vérifier par distance GPS
+        match_dep = (norm_orig_ref == norm_origin)
+        match_arr = (norm_dest_ref == norm_dest)
+
+        # Seulement si pas de match texte → géocoder
+        if not match_dep and coords_origin:
             coords_ref_dep = geocoder_ville(origine_ref)
             if coords_ref_dep:
-                dist_dep = haversine(
-                    coords_origin[0], coords_origin[1],
-                    coords_ref_dep[0], coords_ref_dep[1]
-                )
+                dist_dep = haversine(coords_origin[0], coords_origin[1],
+                                     coords_ref_dep[0], coords_ref_dep[1])
                 match_dep = dist_dep <= RAYON_KM
-            else:
-                match_dep = normalize(origine_ref) == norm_origin
-        else:
-            match_dep = normalize(origine_ref) == norm_origin
 
         if not match_dep:
-            continue
+            continue  # Skip tôt — pas besoin de checker l'arrivée
 
-        # Matching arrivée
-        match_arr = False
-        if coords_dest:
+        if not match_arr and coords_dest:
             coords_ref_arr = geocoder_ville(dest_ref)
             if coords_ref_arr:
-                dist_arr = haversine(
-                    coords_dest[0], coords_dest[1],
-                    coords_ref_arr[0], coords_ref_arr[1]
-                )
+                dist_arr = haversine(coords_dest[0], coords_dest[1],
+                                     coords_ref_arr[0], coords_ref_arr[1])
                 match_arr = dist_arr <= RAYON_KM
-            else:
-                match_arr = normalize(dest_ref) == norm_dest
-        else:
-            match_arr = normalize(dest_ref) == norm_dest
 
         if match_dep and match_arr:
             waypoints = route.get("waypoints", [])
@@ -269,3 +262,4 @@ def get_waypoints(origin: str, dest: str) -> list:
 
     print(f"   📍 Aucune route préférentielle → PTV choisit le trajet")
     return []
+
