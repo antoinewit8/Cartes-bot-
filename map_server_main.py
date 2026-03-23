@@ -41,7 +41,7 @@ def load_pref_routes() -> list:
         return json.load(f)
 
 def find_pref_waypoints(origin: str, dest: str) -> list:
-    """Retourne les waypoints préférentiels pour un trajet, ou []"""
+    """Retourne les waypoints préférentiels pour un trajet, ou []."""
     prefs = load_pref_routes()
     o = origin.strip().lower()
     d = dest.strip().lower()
@@ -91,7 +91,7 @@ def save_routes(data: dict):
 
     with open(ROUTES_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-        
+
 def get_route(route_id: str) -> dict:
     """Télécharge une seule route depuis Firebase (ultra rapide)."""
     if FIREBASE_URL:
@@ -102,10 +102,11 @@ def get_route(route_id: str) -> dict:
         except Exception as e:
             print(f"Erreur lecture Firebase pour la route {route_id} : {e}")
         return None
-        
-    # Sécurité si on est en local
+
+    # Fallback local
     routes = load_routes()
     return routes.get(route_id)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  MODÈLES PYDANTIC
@@ -144,8 +145,7 @@ class RecalcDragRequest(BaseModel):
 def _extract_polyline(ptv: dict) -> list:
     """Extrait les coordonnées [[lat, lon], ...] depuis la réponse PTV."""
     polyline_raw = ptv.get("polyline", "")
-    
-    # ── Cas 1 : dict ──
+
     if isinstance(polyline_raw, dict):
         if polyline_raw.get("type") == "LineString":
             return [[c[1], c[0]] for c in polyline_raw.get("coordinates", [])]
@@ -156,7 +156,6 @@ def _extract_polyline(ptv: dict) -> list:
             return _decode_polyline(polyline_raw["encodedPolyline"])
         return []
 
-    # ── Cas 2 : string ──
     if isinstance(polyline_raw, str) and polyline_raw:
         try:
             parsed = json.loads(polyline_raw)
@@ -167,7 +166,6 @@ def _extract_polyline(ptv: dict) -> list:
         return _decode_polyline(polyline_raw)
 
     return []
-
 
 def _extract_distance_duration(ptv: dict):
     """Retourne (distance_m, duration_s) depuis la réponse PTV."""
@@ -208,28 +206,40 @@ def _decode_polyline(encoded: str) -> list:
         coords.append([lat / 1e5, lng / 1e5])
     return coords
 
+async def _geocode(address: str) -> Optional[list]:
+    """Géocode une adresse via PTV → [lat, lng]."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://api.myptv.com/geocoding/v1/locations/by-text",
+            headers={"apiKey": PTV_API_KEY},
+            params={"searchText": address, "countryFilter": "FRA,BEL,LUX,DEU,ESP"},
+            timeout=15,
+        )
+    if resp.status_code != 200:
+        return None
+    results = resp.json().get("locations", [])
+    if not results:
+        return None
+    loc = results[0]["referencePosition"]
+    return [loc["latitude"], loc["longitude"]]
+
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool) -> dict:
     """Appel PTV routing v1 GET — waypoints répétés en query string."""
-
     query_params = [
         ("profile", "EUR_TRAILER_TRUCK"),
         ("results", "POLYLINE,TOLL_COSTS"),
         ("options[currency]", "EUR"),
     ]
 
-   # 🌟 AJOUT DE "i, " et "enumerate" ICI :
     for i, wp_str in enumerate(waypoints_list):
         parts = wp_str.split(",")
         lat = float(parts[0].strip())
         lng = float(parts[1].strip())
-        
-        # Si c'est une étape intermédiaire (ni le tout premier, ni le tout dernier point)
         if 0 < i < len(waypoints_list) - 1:
-            # On ajoute un rayon de tolérance de 5000 mètres (5 km)
             query_params.append(("waypoints", f"{lat},{lng};radius=5000"))
         else:
-            # Pour le vrai Départ et la vraie Arrivée, on reste précis au mètre près
             query_params.append(("waypoints", f"{lat},{lng}"))
+
     avoid = []
     if avoid_tolls:    avoid.append("TOLL_ROADS")
     if avoid_highways: avoid.append("HIGHWAYS")
@@ -253,37 +263,44 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
     return resp.json()
 
 
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  ENDPOINTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Health check (warm-up Render) ────────────────────────────────────────────
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 
-# ── Créer une route (appelé par main_km.py) ──────────────────────────────────
+# ── Créer une route ──────────────────────────────────────────────────────────
 @app.post("/api/create_route")
 async def create_route(route: RouteCreate):
     route_id = uuid.uuid4().hex[:8]
-    routes   = {}  # <--- MAGIE POUR NE PAS FAIRE PLANTER RENDER
-    routes[route_id] = route.dict()
+
+    # ✅ CORRIGÉ : route_data créé AVANT d'être utilisé
+    route_data = route.dict()
+    route_data["polyline_original"] = route.polyline  # immuable, jamais écrasé
+    route_data["polyline_current"]  = route.polyline  # modifiable par drag
+
+    routes = {route_id: route_data}
     save_routes(routes)
+
     url = f"{MAP_SERVER_URL}/carte?id={route_id}"
     return {"url": url, "id": route_id}
 
 
 # ── Afficher la carte ────────────────────────────────────────────────────────
-# ── Afficher la carte ────────────────────────────────────────────────────────
 @app.get("/carte")
 async def show_map(request: Request, id: str):
-    route = get_route(id)        # <--- ON UTILISE LA NOUVELLE FONCTION MAGIQUE
-    if not route:                # <--- ON VÉRIFIE SI ELLE A ÉTÉ TROUVÉE
+    route = get_route(id)
+    if not route:
         raise HTTPException(status_code=404, detail="Trajet introuvable")
-    
+
+    # ✅ Rétrocompat : anciennes routes sans polyline_original
+    if "polyline_original" not in route:
+        route["polyline_original"] = route.get("polyline", [])
+        route["polyline_current"]  = route.get("polyline", [])
+
     return templates.TemplateResponse("map.html", {
         "request":    request,
         "route":      route,
@@ -333,7 +350,6 @@ async def recalculate_drag(data: RecalcDragRequest):
 
     waypoints_list = [f"{wp.lat},{wp.lng}" for wp in data.waypoints]
 
-    # ── DEBUG : log ce qu'on envoie à PTV ──
     print("="*60)
     print(f"DRAG RECALC — {len(waypoints_list)} waypoints")
     for i, wp in enumerate(waypoints_list):
@@ -353,18 +369,22 @@ async def recalculate_drag(data: RecalcDragRequest):
     prix_peage = _extract_toll(ptv)
     coords     = _extract_polyline(ptv)
 
-    # ── DEBUG : log ce que PTV renvoie ──
     print(f"RÉSULTAT PTV : dist={distance_m}m, dur={duration_s}s, peage={prix_peage}, coords={len(coords)} points")
 
+    # ✅ On écrase seulement polyline_current, jamais polyline_original
     if data.route_id and FIREBASE_URL:
         update_data = {
-            "polyline":    coords,
-            "distance_km": round(distance_m / 1000, 1),
-            "duration_h":  round(duration_s / 3600, 2),
-            "prix_peage":  round(prix_peage, 2)
+            "polyline_current": coords,
+            "distance_km":      round(distance_m / 1000, 1),
+            "duration_h":       round(duration_s / 3600, 2),
+            "prix_peage":       round(prix_peage, 2),
         }
         try:
-            httpx.patch(f"{FIREBASE_URL}/routes/{data.route_id}.json", json=update_data, timeout=10)
+            httpx.patch(
+                f"{FIREBASE_URL}/routes/{data.route_id}.json",
+                json=update_data,
+                timeout=10
+            )
         except Exception as e:
             print(f"Erreur maj Firebase: {e}")
 
@@ -376,6 +396,35 @@ async def recalculate_drag(data: RecalcDragRequest):
     }
 
 
+# ── Reset route → retour à l'itinéraire original ─────────────────────────────
+@app.post("/api/reset_route/{route_id}")
+async def reset_route(route_id: str):
+    """Remet polyline_current = polyline_original dans Firebase."""
+    if not FIREBASE_URL:
+        raise HTTPException(400, "Firebase non configuré")
+
+    try:
+        r = httpx.get(
+            f"{FIREBASE_URL}/routes/{route_id}/polyline_original.json",
+            timeout=10
+        )
+        if r.status_code != 200 or not r.json():
+            raise HTTPException(404, "polyline_original introuvable")
+
+        original = r.json()
+
+        httpx.patch(
+            f"{FIREBASE_URL}/routes/{route_id}.json",
+            json={"polyline_current": original},
+            timeout=10
+        )
+        return {"status": "reset", "points": len(original)}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Erreur reset: {e}")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  LANCEMENT
@@ -383,3 +432,4 @@ async def recalculate_drag(data: RecalcDragRequest):
 
 if __name__ == "__main__":
     uvicorn.run("map_server_main:app", host="0.0.0.0", port=8000, reload=False)
+
