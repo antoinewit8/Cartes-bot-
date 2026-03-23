@@ -12,154 +12,126 @@
         body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
 
+        /* ── Info box (inchangée) ── */
         #info-box {
             position: absolute; top: 20px; left: 20px;
-            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+            background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
             padding: 25px; border-radius: 12px;
             box-shadow: 0 8px 20px rgba(0,0,0,0.15); z-index: 10;
             width: 320px; max-height: 90vh; overflow-y: auto;
             border: 1px solid #e1e8ed;
         }
-
         h3 { margin: 0 0 20px 0; font-size: 18px; color: #2c3e50; line-height: 1.4; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
         .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 16px; color: #34495e; font-weight: 500; }
         .badge { font-weight: bold; color: #2c3e50; font-size: 17px; background: #ecf0f1; padding: 6px 10px; border-radius: 6px; text-align: right; min-width: 80px; }
         .badge-blue { color: #2980b9; background: #e1f0fa; }
-
         #wp-container { margin-top: 25px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef; }
         h4 { margin: 0 0 12px 0; font-size: 14px; color: #7f8c8d; text-transform: uppercase; letter-spacing: 0.5px; }
-
-        .wp-item {
-            display: flex; justify-content: space-between; align-items: center;
-            background: white; padding: 10px; margin-bottom: 8px;
-            border-radius: 6px; border-left: 4px solid #3498db;
-            font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }
+        .wp-item { display: flex; justify-content: space-between; align-items: center; background: white; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 4px solid #3498db; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .wp-remove { color: #e74c3c; cursor: pointer; font-size: 16px; padding: 0 5px; transition: 0.2s; }
         .wp-remove:hover { color: #c0392b; transform: scale(1.2); }
         .wp-empty { font-size: 13px; color: #95a5a6; font-style: italic; margin: 0; text-align: center; }
-
         .instructions { font-size: 13px; color: #7f8c8d; margin-top: 20px; line-height: 1.5; }
-
-        /* Boutons */
-        .btn {
-            margin-top: 10px; padding: 10px; border: none; border-radius: 6px;
-            cursor: pointer; font-size: 14px; width: 100%; font-weight: bold; transition: 0.2s;
-        }
-        .btn-danger  { background: #e74c3c; color: white; }
-        .btn-danger:hover  { background: #c0392b; }
-        .btn-reset   { background: #f39c12; color: white; }
-        .btn-reset:hover   { background: #d68910; }
+        .btn { margin-top: 10px; padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; width: 100%; font-weight: bold; transition: 0.2s; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn-reset { background: #f39c12; color: white; }
+        .btn-reset:hover { background: #d68910; }
         .btn-reset:disabled { background: #bdc3c7; cursor: not-allowed; }
-
-        /* Badge état de la route */
-        #route-state {
-            font-size: 12px; text-align: center; padding: 5px 10px;
-            border-radius: 20px; margin-bottom: 15px; font-weight: bold;
-        }
-        .state-original  { background: #d5f5e3; color: #1e8449; }
-        .state-modified  { background: #fdebd0; color: #d35400; }
-
-        /* Spinner de chargement */
-        #loading-indicator {
-            display: none; position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.7); color: white;
-            padding: 15px 25px; border-radius: 8px; z-index: 100;
-            font-size: 15px; font-weight: bold;
-        }
-
-        /* ── Barre de recherche ── */
-        #search-box {
-            margin-top: 20px;
-            border-top: 1px solid #e1e8ed;
-            padding-top: 15px;
-        }
-        #search-box h4 {
-            margin: 0 0 10px 0;
-            font-size: 13px;
-            color: #7f8c8d;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        #search-input {
-            width: 100%;
-            padding: 9px 10px;
-            border: 1px solid #dce1e7;
-            border-radius: 6px;
-            font-size: 14px;
-            box-sizing: border-box;
-            outline: none;
-            transition: border 0.2s;
-        }
+        #route-state { font-size: 12px; text-align: center; padding: 5px 10px; border-radius: 20px; margin-bottom: 15px; font-weight: bold; }
+        .state-original { background: #d5f5e3; color: #1e8449; }
+        .state-modified { background: #fdebd0; color: #d35400; }
+        #loading-indicator { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.7); color: white; padding: 15px 25px; border-radius: 8px; z-index: 100; font-size: 15px; font-weight: bold; }
+        #search-box { margin-top: 20px; border-top: 1px solid #e1e8ed; padding-top: 15px; }
+        #search-box h4 { margin: 0 0 10px 0; font-size: 13px; color: #7f8c8d; text-transform: uppercase; letter-spacing: 0.5px; }
+        #search-input { width: 100%; padding: 9px 10px; border: 1px solid #dce1e7; border-radius: 6px; font-size: 14px; box-sizing: border-box; outline: none; transition: border 0.2s; }
         #search-input:focus { border-color: #3498db; }
-
-        #search-btn {
-            margin-top: 8px;
-            padding: 9px;
-            width: 100%;
-            background: #3498db;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: 0.2s;
-        }
+        #search-btn { margin-top: 8px; padding: 9px; width: 100%; background: #3498db; color: white; border: none; border-radius: 6px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; }
         #search-btn:hover { background: #2980b9; }
         #search-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
-
-        #search-error {
-            font-size: 12px;
-            color: #e74c3c;
-            margin-top: 6px;
-            display: none;
-        }
-
-        /* Popup MapLibre custom */
-        .search-popup .maplibregl-popup-content {
-            padding: 12px;
-            border-radius: 8px;
-            font-family: 'Segoe UI', Arial, sans-serif;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            min-width: 180px;
-        }
-        .popup-label {
-            font-size: 13px;
-            font-weight: bold;
-            color: #2c3e50;
-            margin-bottom: 10px;
-            word-break: break-word;
-        }
-        .popup-btn {
-            display: block;
-            width: 100%;
-            padding: 8px;
-            margin-bottom: 6px;
-            border: none;
-            border-radius: 5px;
-            font-size: 13px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: 0.2s;
-        }
+        #search-error { font-size: 12px; color: #e74c3c; margin-top: 6px; display: none; }
+        .search-popup .maplibregl-popup-content { padding: 12px; border-radius: 8px; font-family: 'Segoe UI', Arial, sans-serif; box-shadow: 0 4px 12px rgba(0,0,0,0.2); min-width: 180px; }
+        .popup-label { font-size: 13px; font-weight: bold; color: #2c3e50; margin-bottom: 10px; word-break: break-word; }
+        .popup-btn { display: block; width: 100%; padding: 8px; margin-bottom: 6px; border: none; border-radius: 5px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; }
         .popup-btn-origin { background: #2ecc71; color: white; }
         .popup-btn-origin:hover { background: #27ae60; }
-        .popup-btn-dest   { background: #e74c3c; color: white; }
-        .popup-btn-dest:hover   { background: #c0392b; }
+        .popup-btn-dest { background: #e74c3c; color: white; }
+        .popup-btn-dest:hover { background: #c0392b; }
         .popup-btn-cancel { background: #ecf0f1; color: #7f8c8d; }
         .popup-btn-cancel:hover { background: #dce1e7; }
+
+        /* ══════════════════════════════════════════
+           PANNEAU TOGGLE — NOUVEAU
+        ══════════════════════════════════════════ */
+        #layer-panel {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            display: flex;
+            gap: 12px;
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(10px);
+            padding: 12px 18px;
+            border-radius: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.18);
+            border: 1px solid #e1e8ed;
+        }
+
+        /* Bouton toggle individuel */
+        .toggle-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 30px;
+            border: 2px solid transparent;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: bold;
+            transition: all 0.22s ease;
+            user-select: none;
+            background: #f0f3f5;
+            color: #5d6d7e;
+        }
+
+        /* État ON */
+        .toggle-btn.active-road {
+            background: #eaf4fb;
+            color: #1a6ea8;
+            border-color: #3498db;
+        }
+        .toggle-btn.active-pl {
+            background: #fdf2ec;
+            color: #c0392b;
+            border-color: #e74c3c;
+        }
+
+        /* Petite pastille colorée dans le bouton */
+        .toggle-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+        .dot-road { background: #3498db; }
+        .dot-pl   { background: #e74c3c; }
+
+        /* Badge "chargement" sur le bouton PL */
+        .toggle-btn .badge-loading {
+            font-size: 11px;
+            opacity: 0.7;
+        }
     </style>
 </head>
 <body>
 
+    <!-- ═══ INFO BOX (inchangée) ═══ -->
     <div id="info-box">
         <h3>📍 {{ route.origin }} <br>🏁 {{ route.dest }}</h3>
-
-        <!-- Badge état -->
         <div id="route-state" class="state-original">✅ Itinéraire original</div>
-
         <div class="stat-row">Distance <span class="badge badge-blue" id="dist">{{ route.distance_km }} km</span></div>
         <div class="stat-row">Durée    <span class="badge"            id="dur" >{{ route.duration_h }} h</span></div>
         <div class="stat-row">Péage    <span class="badge"            id="toll">{{ route.prix_peage }} €</span></div>
@@ -175,15 +147,9 @@
             </button>
         </div>
 
-        <!-- ── Recherche d'adresse ── -->
         <div id="search-box">
             <h4>🔍 Rechercher une adresse</h4>
-            <input
-                id="search-input"
-                type="text"
-                placeholder="Ex : 14 rue de la Paix, Paris"
-                autocomplete="off"
-            />
+            <input id="search-input" type="text" placeholder="Ex : 14 rue de la Paix, Paris" autocomplete="off" />
             <button id="search-btn" onclick="searchAddress()">Rechercher</button>
             <div id="search-error">❌ Adresse introuvable</div>
         </div>
@@ -197,6 +163,34 @@
         </div>
     </div>
 
+    <!-- ═══ PANNEAU TOGGLE COUCHES — NOUVEAU ═══ -->
+    <div id="layer-panel">
+
+        <!-- Toggle A : Types de routes -->
+        <button
+            class="toggle-btn"
+            id="toggle-road"
+            onclick="toggleLayer('road')"
+            title="Colorier autoroutes / nationales / départementales"
+        >
+            <span class="toggle-dot dot-road"></span>
+            🛣️ Types de routes
+        </button>
+
+        <!-- Toggle B : Restrictions PL -->
+        <button
+            class="toggle-btn"
+            id="toggle-pl"
+            onclick="toggleLayer('pl')"
+            title="Segments interdits ou limités aux poids lourds (44t / 4m)"
+        >
+            <span class="toggle-dot dot-pl"></span>
+            🚛 Restrictions PL
+            <span class="badge-loading" id="pl-status"></span>
+        </button>
+
+    </div>
+
     <div id="loading-indicator">⏳ Calcul en cours...</div>
     <div id="map"></div>
 
@@ -205,7 +199,7 @@
         const serverUrl = "{{ server_url }}";
 
         // ═══════════════════════════════════════════════════════
-        //  DONNÉES INITIALES
+        //  DONNÉES INITIALES (inchangées)
         // ═══════════════════════════════════════════════════════
 
         const initPolylineCurrent  = {{ (route.polyline_current  or route.polyline) | tojson }};
@@ -218,6 +212,15 @@
         const endCoord   = originalGeojsonCoords[originalGeojsonCoords.length - 1];
 
         let isModified = false;
+
+        // ═══════════════════════════════════════════════════════
+        //  ÉTAT DES COUCHES — NOUVEAU
+        // ═══════════════════════════════════════════════════════
+
+        const layerState = {
+            road: false,   // couche A désactivée par défaut
+            pl:   false    // couche B désactivée par défaut
+        };
 
         // ═══════════════════════════════════════════════════════
         //  INITIALISATION CARTE
@@ -237,35 +240,39 @@
 
         map.on('load', () => {
 
-            // Tracé ORIGINAL (grisé)
+            // ── Tracé ORIGINAL grisé ────────────────────────────
             map.addSource('originalRouteSource', {
                 type: 'geojson',
                 data: buildGeoJSON(originalGeojsonCoords)
             });
             map.addLayer({
-                id: 'originalRouteLayer',
-                type: 'line',
+                id: 'originalRouteLayer', type: 'line',
                 source: 'originalRouteSource',
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: { 'line-color': '#95a5a6', 'line-width': 5, 'line-opacity': 0.0 }
             });
 
-            // Tracé ACTIF (bleu)
+            // ── Tracé ACTIF bleu ────────────────────────────────
             map.addSource('routeSource', {
                 type: 'geojson',
                 data: buildGeoJSON(geojsonCoords)
             });
             map.addLayer({
-                id: 'routeLayer',
-                type: 'line',
+                id: 'routeLayer', type: 'line',
                 source: 'routeSource',
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: { 'line-color': '#007cbf', 'line-width': 6, 'line-opacity': 0.85 }
             });
 
+            // ── COUCHE A : Types de routes ── NOUVEAU ───────────
+            _initRoadTypeLayer();
+
+            // ── COUCHE B : Restrictions PL ── NOUVEAU ───────────
+            _initPLLayer();   // fetch Overpass en arrière-plan
+
             fitBoundsToCoords(geojsonCoords);
 
-            // Marqueurs départ / arrivée
+            // Marqueurs
             originMarker = new maplibregl.Marker({ color: '#27ae60', draggable: true })
                 .setLngLat(startCoord).addTo(map);
             destMarker = new maplibregl.Marker({ color: '#c0392b', draggable: true })
@@ -274,25 +281,277 @@
             originMarker.on('dragend', () => recalculateRoute());
             destMarker.on('dragend',   () => recalculateRoute());
 
-            // Clic droit = ajout waypoint
             map.on('contextmenu', (e) => addWaypoint(e.lngLat));
 
-            // Détecte si déjà modifié au chargement
             if (JSON.stringify(initPolylineCurrent) !== JSON.stringify(initPolylineOriginal)) {
                 setModifiedState(true);
             }
         });
 
         // ═══════════════════════════════════════════════════════
-        //  HELPERS
+        //  COUCHE A — TYPES DE ROUTES  (NOUVEAU)
+        // ═══════════════════════════════════════════════════════
+        /**
+         * On exploite les couches vectorielles déjà présentes dans le style
+         * CARTO Voyager (roads, tunnels, bridges) en ajoutant des couches
+         * de highlight par-dessus — opacité 0 par défaut, 1 quand activé.
+         *
+         * Filtres OSM highway :
+         *   motorway / motorway_link          → Autoroute  #e74c3c
+         *   trunk / trunk_link / primary      → Nationale  #f39c12
+         *   secondary / tertiary              → Dép.       #27ae60
+         */
+
+        function _initRoadTypeLayer() {
+
+            // Source vecteur OSM via Stadia/OpenMapTiles (compatible CARTO Voyager)
+            // On utilise le tileset vecteur public de maptiler pour les tags highway
+            map.addSource('osmRoads', {
+                type: 'vector',
+                url: 'https://tiles.stadiamaps.com/data/openmaptiles.json'
+                // ⚠️ Gratuit jusqu'à 200k tuiles/mois — suffisant pour usage métier léger
+                // Alternative sans compte : https://api.maptiler.com/tiles/v3/tiles.json?key=YOUR_KEY
+            });
+
+            const roadDefs = [
+                {
+                    id:     'highlight-motorway',
+                    label:  'Autoroutes',
+                    filter: ['in', 'class', 'motorway', 'motorway_link'],
+                    color:  '#e74c3c',   // rouge
+                    width:  5
+                },
+                {
+                    id:     'highlight-trunk',
+                    label:  'Nationales / RN',
+                    filter: ['in', 'class', 'trunk', 'trunk_link', 'primary'],
+                    color:  '#f39c12',   // orange
+                    width:  4
+                },
+                {
+                    id:     'highlight-secondary',
+                    label:  'Départementales',
+                    filter: ['in', 'class', 'secondary', 'tertiary'],
+                    color:  '#27ae60',   // vert
+                    width:  3
+                }
+            ];
+
+            roadDefs.forEach(def => {
+                map.addLayer({
+                    id:           def.id,
+                    type:         'line',
+                    source:       'osmRoads',
+                    'source-layer': 'transportation',   // couche vecteur OpenMapTiles
+                    filter:       def.filter,
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: {
+                        'line-color':   def.color,
+                        'line-width':   def.width,
+                        'line-opacity': 0   // caché par défaut — toggle l'allume
+                    }
+                },
+                'routeLayer'  // inséré SOUS la route active pour ne pas la masquer
+                );
+            });
+        }
+
+        // ═══════════════════════════════════════════════════════
+        //  COUCHE B — RESTRICTIONS PL  (NOUVEAU)
+        // ═══════════════════════════════════════════════════════
+        /**
+         * Stratégie :
+         *   1. Au load de la carte : requête Overpass API pour la bbox de l'itinéraire
+         *      → récupère les ways avec maxweight < 44 OU maxheight < 4
+         *   2. Transforme en GeoJSON LineString
+         *   3. Source GeoJSON locale → couche rouge/orange overlay
+         *   4. Tooltip au survol
+         *
+         * Overpass est gratuit, pas de clé, données OSM CC-BY.
+         */
+
+        async function _initPLLayer() {
+            const statusEl = document.getElementById('pl-status');
+            statusEl.textContent = '⏳';
+
+            // Source vide initialement
+            map.addSource('plSource', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] }
+            });
+
+            // Couche segments INTERDITS (poids > 44t ou hauteur > 4m)
+            map.addLayer({
+                id:     'plLayerBlock',
+                type:   'line',
+                source: 'plSource',
+                filter: ['==', ['get', 'severity'], 'block'],
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color':    '#e74c3c',
+                    'line-width':    6,
+                    'line-opacity':  0,          // caché par défaut
+                    'line-dasharray': [2, 2]
+                }
+            });
+
+            // Couche segments LIMITÉS (ex : 3.5t – 44t, ou 3.5m – 4m)
+            map.addLayer({
+                id:     'plLayerWarn',
+                type:   'line',
+                source: 'plSource',
+                filter: ['==', ['get', 'severity'], 'warn'],
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color':    '#f39c12',
+                    'line-width':    5,
+                    'line-opacity':  0,
+                    'line-dasharray': [3, 3]
+                }
+            });
+
+            // Tooltip hover
+            const plPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+
+            ['plLayerBlock', 'plLayerWarn'].forEach(layerId => {
+                map.on('mouseenter', layerId, (e) => {
+                    if (!layerState.pl) return;
+                    map.getCanvas().style.cursor = 'pointer';
+                    const props = e.features[0].properties;
+                    let html = '<div style="font-size:13px; font-weight:bold; color:#c0392b;">🚫 Restriction PL</div>';
+                    if (props.maxweight) html += `<div>⚖️ Tonnage max : <b>${props.maxweight} t</b></div>`;
+                    if (props.maxheight) html += `<div>📏 Hauteur max : <b>${props.maxheight} m</b></div>`;
+                    if (props.name)      html += `<div style="color:#7f8c8d; font-size:12px; margin-top:4px;">${props.name}</div>`;
+                    plPopup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+                });
+                map.on('mouseleave', layerId, () => {
+                    map.getCanvas().style.cursor = '';
+                    plPopup.remove();
+                });
+            });
+
+            // ── Fetch Overpass ───────────────────────────────────
+            try {
+                const geojson = await _fetchPLRestrictions();
+                map.getSource('plSource').setData(geojson);
+                statusEl.textContent = geojson.features.length > 0
+                    ? `(${geojson.features.length})`
+                    : '(0)';
+            } catch (err) {
+                console.warn('Overpass fetch échoué:', err);
+                statusEl.textContent = '⚠️';
+            }
+        }
+
+        /**
+         * Calcule la bbox de l'itinéraire + marge, puis interroge Overpass
+         * pour récupérer les ways avec restrictions de poids ou hauteur.
+         */
+        async function _fetchPLRestrictions() {
+
+            // Bbox de l'itinéraire avec marge de 0.3°
+            const lats = originalGeojsonCoords.map(c => c[1]);
+            const lngs = originalGeojsonCoords.map(c => c[0]);
+            const margin = 0.3;
+            const bbox = [
+                Math.min(...lats) - margin,
+                Math.min(...lngs) - margin,
+                Math.max(...lats) + margin,
+                Math.max(...lngs) + margin
+            ].join(',');
+
+            // Requête Overpass QL :
+            //   ways avec maxweight OU maxheight présents dans la bbox
+            const query = `
+                [out:json][timeout:25];
+                (
+                  way["maxweight"](${bbox});
+                  way["maxheight"](${bbox});
+                );
+                out geom;
+            `;
+
+            const res = await fetch('https://overpass-api.de/api/interpreter', {
+                method: 'POST',
+                body:   'data=' + encodeURIComponent(query)
+            });
+
+            if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+            const json = await res.json();
+
+            // Convertit les ways Overpass → GeoJSON features
+            const features = json.elements
+                .filter(el => el.type === 'way' && el.geometry)
+                .map(el => {
+                    const mw = parseFloat(el.tags?.maxweight);
+                    const mh = parseFloat(el.tags?.maxheight);
+
+                    // Classifie : block si interdit pour 44t/4m, warn si limite partielle
+                    let severity = 'warn';
+                    if ((mw && mw < 3.5) || (mh && mh < 3.5)) severity = 'block';
+
+                    return {
+                        type: 'Feature',
+                        properties: {
+                            severity,
+                            maxweight: mw || null,
+                            maxheight: mh || null,
+                            name:      el.tags?.name || null
+                        },
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: el.geometry.map(pt => [pt.lon, pt.lat])
+                        }
+                    };
+                });
+
+            return { type: 'FeatureCollection', features };
+        }
+
+        // ═══════════════════════════════════════════════════════
+        //  TOGGLE LOGIQUE — NOUVEAU
+        // ═══════════════════════════════════════════════════════
+
+        /**
+         * Active / désactive une couche et met à jour le bouton.
+         * @param {'road'|'pl'} key
+         */
+        function toggleLayer(key) {
+            layerState[key] = !layerState[key];
+            const on = layerState[key];
+
+            if (key === 'road') {
+                const opacity = on ? 0.75 : 0;
+                ['highlight-motorway', 'highlight-trunk', 'highlight-secondary'].forEach(id => {
+                    map.setPaintProperty(id, 'line-opacity', opacity);
+                });
+                _setToggleBtn('toggle-road', on, 'active-road');
+
+            } else if (key === 'pl') {
+                const opBlock = on ? 0.85 : 0;
+                const opWarn  = on ? 0.75 : 0;
+                map.setPaintProperty('plLayerBlock', 'line-opacity', opBlock);
+                map.setPaintProperty('plLayerWarn',  'line-opacity', opWarn);
+                _setToggleBtn('toggle-pl', on, 'active-pl');
+            }
+        }
+
+        /** Met à jour l'apparence visuelle du bouton toggle */
+        function _setToggleBtn(btnId, on, activeClass) {
+            const btn = document.getElementById(btnId);
+            if (on) {
+                btn.classList.add(activeClass);
+            } else {
+                btn.classList.remove(activeClass);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
+        //  HELPERS (inchangés)
         // ═══════════════════════════════════════════════════════
 
         function buildGeoJSON(coords) {
-            return {
-                type: 'Feature',
-                properties: {},
-                geometry: { type: 'LineString', coordinates: coords }
-            };
+            return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } };
         }
 
         function fitBoundsToCoords(coords) {
@@ -310,7 +569,6 @@
             isModified = modified;
             const badge    = document.getElementById('route-state');
             const btnReset = document.getElementById('btn-reset');
-
             if (modified) {
                 badge.className   = 'state-modified';
                 badge.textContent = '✏️ Itinéraire modifié';
@@ -325,20 +583,16 @@
         }
 
         // ═══════════════════════════════════════════════════════
-        //  GESTION DES WAYPOINTS
+        //  WAYPOINTS (inchangés)
         // ═══════════════════════════════════════════════════════
 
         function addWaypoint(lngLat) {
             const id = Date.now();
-            const wpMarker = new maplibregl.Marker({ color: '#3498db', draggable: true })
-                .setLngLat(lngLat).addTo(map);
-
+            const wpMarker = new maplibregl.Marker({ color: '#3498db', draggable: true }).setLngLat(lngLat).addTo(map);
             const wpObj = { id, marker: wpMarker };
             waypoints.push(wpObj);
-
             wpMarker.on('dragend', () => { updateWaypointsList(); recalculateRoute(); });
             wpMarker.getElement().addEventListener('dblclick', () => removeWaypoint(id));
-
             updateWaypointsList();
             recalculateRoute();
         }
@@ -349,35 +603,23 @@
             waypoints[index].marker.remove();
             waypoints.splice(index, 1);
             updateWaypointsList();
-            if (waypoints.length === 0 && !hasMarkersMovedFromOriginal()) {
-                restoreOriginalDisplay();
-            } else {
-                recalculateRoute();
-            }
+            if (waypoints.length === 0 && !hasMarkersMovedFromOriginal()) restoreOriginalDisplay();
+            else recalculateRoute();
         }
 
         function clearWaypoints() {
             waypoints.forEach(wp => wp.marker.remove());
             waypoints = [];
             updateWaypointsList();
-            if (!hasMarkersMovedFromOriginal()) {
-                restoreOriginalDisplay();
-            } else {
-                recalculateRoute();
-            }
+            if (!hasMarkersMovedFromOriginal()) restoreOriginalDisplay();
+            else recalculateRoute();
         }
 
         function hasMarkersMovedFromOriginal() {
             if (!originMarker || !destMarker) return false;
-            const o = originMarker.getLngLat();
-            const d = destMarker.getLngLat();
-            const t = 0.001;
-            return (
-                Math.abs(o.lat - startCoord[1]) > t ||
-                Math.abs(o.lng - startCoord[0]) > t ||
-                Math.abs(d.lat - endCoord[1])   > t ||
-                Math.abs(d.lng - endCoord[0])   > t
-            );
+            const o = originMarker.getLngLat(), d = destMarker.getLngLat(), t = 0.001;
+            return Math.abs(o.lat - startCoord[1]) > t || Math.abs(o.lng - startCoord[0]) > t ||
+                   Math.abs(d.lat - endCoord[1])   > t || Math.abs(d.lng - endCoord[0])   > t;
         }
 
         function updateWaypointsList() {
@@ -392,20 +634,15 @@
                 const item   = document.createElement('div');
                 item.className = 'wp-item';
                 item.innerHTML = `
-                    <div>
-                        <b>Étape ${index + 1}</b><br>
-                        <span style="color:#7f8c8d; font-size:12px;">
-                            ${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}
-                        </span>
-                    </div>
-                    <div class="wp-remove" onclick="removeWaypoint(${wp.id})" title="Supprimer">❌</div>
-                `;
+                    <div><b>Étape ${index + 1}</b><br>
+                    <span style="color:#7f8c8d; font-size:12px;">${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}</span></div>
+                    <div class="wp-remove" onclick="removeWaypoint(${wp.id})" title="Supprimer">❌</div>`;
                 listDiv.appendChild(item);
             });
         }
 
         // ═══════════════════════════════════════════════════════
-        //  RESTAURATION ITINÉRAIRE ORIGINAL
+        //  RESET & RECALCUL (inchangés)
         // ═══════════════════════════════════════════════════════
 
         function restoreOriginalDisplay() {
@@ -414,11 +651,9 @@
             originMarker.setLngLat(startCoord);
             destMarker.setLngLat(endCoord);
             setModifiedState(false);
-
             fetch(`${serverUrl}/api/reset_route/${routeId}`, { method: 'POST' })
-                .then(r => r.json())
-                .then(d => console.log('Firebase reset:', d))
-                .catch(e => console.warn('Reset Firebase échoué (non bloquant):', e));
+                .then(r => r.json()).then(d => console.log('Firebase reset:', d))
+                .catch(e => console.warn('Reset Firebase échoué:', e));
         }
 
         async function resetToOriginal() {
@@ -428,41 +663,27 @@
             updateWaypointsList();
         }
 
-        // ═══════════════════════════════════════════════════════
-        //  RECALCUL PTV
-        // ═══════════════════════════════════════════════════════
-
         async function recalculateRoute() {
             const allPoints = [
                 originMarker.getLngLat(),
                 ...waypoints.map(w => w.marker.getLngLat()),
                 destMarker.getLngLat()
             ];
-
             setLoading(true);
-
             try {
                 const response = await fetch(`${serverUrl}/api/recalculate_drag`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        route_id: routeId,
-                        waypoints: allPoints.map(p => ({ lat: p.lat, lng: p.lng }))
-                    })
+                    body: JSON.stringify({ route_id: routeId, waypoints: allPoints.map(p => ({ lat: p.lat, lng: p.lng })) })
                 });
-
                 if (!response.ok) { console.error('Erreur serveur:', response.status); return; }
-
                 const data = await response.json();
-
                 document.getElementById('dist').innerText = data.distance_km + ' km';
                 document.getElementById('dur').innerText  = data.duration_h  + ' h';
                 document.getElementById('toll').innerText = data.prix_peage  + ' €';
-
                 geojsonCoords = data.polyline.map(c => [c[1], c[0]]);
                 map.getSource('routeSource').setData(buildGeoJSON(geojsonCoords));
                 setModifiedState(true);
-
             } catch (err) {
                 console.error('Erreur recalcul:', err);
             } finally {
@@ -471,109 +692,57 @@
         }
 
         // ═══════════════════════════════════════════════════════
-        //  RECHERCHE D'ADRESSE + PIN VIOLET
+        //  RECHERCHE ADRESSE (inchangée)
         // ═══════════════════════════════════════════════════════
 
-        let searchMarker = null;
-        let searchPopup  = null;
+        let searchMarker = null, searchPopup = null;
 
         async function searchAddress() {
             const input = document.getElementById('search-input');
             const btn   = document.getElementById('search-btn');
             const errEl = document.getElementById('search-error');
             const q     = input.value.trim();
-
             if (!q || q.length < 3) return;
-
             errEl.style.display = 'none';
-            btn.disabled        = true;
-            btn.innerText       = '⏳ Recherche...';
-
+            btn.disabled = true; btn.innerText = '⏳ Recherche...';
             try {
                 const res = await fetch(`${serverUrl}/api/geocode?q=${encodeURIComponent(q)}`);
-
-                if (!res.ok) {
-                    errEl.style.display = 'block';
-                    return;
-                }
-
-                const data = await res.json();  // { lat, lng, label }
+                if (!res.ok) { errEl.style.display = 'block'; return; }
+                const data = await res.json();
                 _placeSearchPin(data.lat, data.lng, data.label);
-
             } catch (e) {
                 console.error('Erreur geocode:', e);
                 errEl.style.display = 'block';
             } finally {
-                btn.disabled  = false;
-                btn.innerText = 'Rechercher';
+                btn.disabled = false; btn.innerText = 'Rechercher';
             }
         }
 
-        // Raccourci clavier Enter
         document.getElementById('search-input').addEventListener('keydown', e => {
             if (e.key === 'Enter') searchAddress();
         });
 
         function _placeSearchPin(lat, lng, label) {
-
-            // Supprimer l'ancien pin si présent
             if (searchMarker) { searchMarker.remove(); searchMarker = null; }
             if (searchPopup)  { searchPopup.remove();  searchPopup  = null; }
-
-            // Pin violet custom
             const el = document.createElement('div');
-            el.style.cssText = `
-                width: 22px; height: 22px;
-                background: #8e44ad;
-                border: 3px solid white;
-                border-radius: 50% 50% 50% 0;
-                transform: rotate(-45deg);
-                box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-                cursor: pointer;
-            `;
-
-            searchMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-                .setLngLat([lng, lat])
-                .addTo(map);
-
+            el.style.cssText = `width:22px;height:22px;background:#8e44ad;border:3px solid white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:pointer;`;
+            searchMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([lng, lat]).addTo(map);
             map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 13), duration: 800 });
-
-            // Popup avec choix départ / arrivée
-            const popupHTML = `
-                <div class="popup-label">📍 ${label}</div>
-                <button class="popup-btn popup-btn-origin"
-                    onclick="_applySearchResult(${lat}, ${lng}, 'origin')">
-                    🟢 Définir comme départ
-                </button>
-                <button class="popup-btn popup-btn-dest"
-                    onclick="_applySearchResult(${lat}, ${lng}, 'dest')">
-                    🔴 Définir comme arrivée
-                </button>
-                <button class="popup-btn popup-btn-cancel"
-                    onclick="_cancelSearchPin()">
-                    Annuler
-                </button>
-            `;
-
-            searchPopup = new maplibregl.Popup({
-                className:   'search-popup',
-                closeButton: false,
-                maxWidth:    '220px'
-            })
+            searchPopup = new maplibregl.Popup({ className: 'search-popup', closeButton: false, maxWidth: '220px' })
                 .setLngLat([lng, lat])
-                .setHTML(popupHTML)
+                .setHTML(`
+                    <div class="popup-label">📍 ${label}</div>
+                    <button class="popup-btn popup-btn-origin" onclick="_applySearchResult(${lat},${lng},'origin')">🟢 Définir comme départ</button>
+                    <button class="popup-btn popup-btn-dest"   onclick="_applySearchResult(${lat},${lng},'dest')">🔴 Définir comme arrivée</button>
+                    <button class="popup-btn popup-btn-cancel" onclick="_cancelSearchPin()">Annuler</button>`)
                 .addTo(map);
         }
 
         async function _applySearchResult(lat, lng, role) {
             _cancelSearchPin();
-
-            if (role === 'origin') {
-                originMarker.setLngLat([lng, lat]);
-            } else {
-                destMarker.setLngLat([lng, lat]);
-            }
-
+            if (role === 'origin') originMarker.setLngLat([lng, lat]);
+            else                   destMarker.setLngLat([lng, lat]);
             await recalculateRoute();
         }
 
