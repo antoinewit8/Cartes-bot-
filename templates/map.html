@@ -4,15 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Trajet: {{ route.origin }} → {{ route.dest }}</title>
-    
+
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
 
     <style>
         body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-        
-        /* Le grand panneau d'informations sur la gauche */
+
         #info-box {
             position: absolute; top: 20px; left: 20px;
             background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
@@ -21,74 +20,121 @@
             width: 320px; max-height: 90vh; overflow-y: auto;
             border: 1px solid #e1e8ed;
         }
-        
+
         h3 { margin: 0 0 20px 0; font-size: 18px; color: #2c3e50; line-height: 1.4; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
-        
-        /* Style des lignes de statistiques */
         .stat-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 16px; color: #34495e; font-weight: 500; }
-        .badge { font-weight: bold; color: #2c3e50; font-size: 17px; background: #ecf0f1; padding: 6px 10px; border-radius: 6px; text-align: right; min-width: 80px;}
+        .badge { font-weight: bold; color: #2c3e50; font-size: 17px; background: #ecf0f1; padding: 6px 10px; border-radius: 6px; text-align: right; min-width: 80px; }
         .badge-blue { color: #2980b9; background: #e1f0fa; }
-        
-        /* Zone de la liste des étapes */
+
         #wp-container { margin-top: 25px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef; }
         h4 { margin: 0 0 12px 0; font-size: 14px; color: #7f8c8d; text-transform: uppercase; letter-spacing: 0.5px; }
-        
-        .wp-item { 
-            display: flex; justify-content: space-between; align-items: center; 
-            background: white; padding: 10px; margin-bottom: 8px; 
-            border-radius: 6px; border-left: 4px solid #3498db; 
+
+        .wp-item {
+            display: flex; justify-content: space-between; align-items: center;
+            background: white; padding: 10px; margin-bottom: 8px;
+            border-radius: 6px; border-left: 4px solid #3498db;
             font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
         .wp-remove { color: #e74c3c; cursor: pointer; font-size: 16px; padding: 0 5px; transition: 0.2s; }
         .wp-remove:hover { color: #c0392b; transform: scale(1.2); }
         .wp-empty { font-size: 13px; color: #95a5a6; font-style: italic; margin: 0; text-align: center; }
 
-        /* Boutons et instructions */
         .instructions { font-size: 13px; color: #7f8c8d; margin-top: 20px; line-height: 1.5; }
-        .btn { margin-top: 15px; padding: 10px; background: #e74c3c; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; width: 100%; font-weight: bold; transition: 0.2s; }
-        .btn:hover { background: #c0392b; }
+
+        /* Boutons */
+        .btn {
+            margin-top: 10px; padding: 10px; border: none; border-radius: 6px;
+            cursor: pointer; font-size: 14px; width: 100%; font-weight: bold; transition: 0.2s;
+        }
+        .btn-danger  { background: #e74c3c; color: white; }
+        .btn-danger:hover  { background: #c0392b; }
+        .btn-reset   { background: #f39c12; color: white; }
+        .btn-reset:hover   { background: #d68910; }
+        .btn-reset:disabled { background: #bdc3c7; cursor: not-allowed; }
+
+        /* Badge état de la route */
+        #route-state {
+            font-size: 12px; text-align: center; padding: 5px 10px;
+            border-radius: 20px; margin-bottom: 15px; font-weight: bold;
+        }
+        .state-original  { background: #d5f5e3; color: #1e8449; }
+        .state-modified  { background: #fdebd0; color: #d35400; }
+
+        /* Spinner de chargement */
+        #loading-indicator {
+            display: none; position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.7); color: white;
+            padding: 15px 25px; border-radius: 8px; z-index: 100;
+            font-size: 15px; font-weight: bold;
+        }
     </style>
 </head>
 <body>
 
     <div id="info-box">
         <h3>📍 {{ route.origin }} <br>🏁 {{ route.dest }}</h3>
-        
+
+        <!-- ✅ Badge état -->
+        <div id="route-state" class="state-original">✅ Itinéraire original</div>
+
         <div class="stat-row">Distance <span class="badge badge-blue" id="dist">{{ route.distance_km }} km</span></div>
-        <div class="stat-row">Durée <span class="badge" id="dur">{{ route.duration_h }} h</span></div>
-        <div class="stat-row">Péage <span class="badge" id="toll">{{ route.prix_peage }} €</span></div>
-        
+        <div class="stat-row">Durée    <span class="badge"            id="dur" >{{ route.duration_h }} h</span></div>
+        <div class="stat-row">Péage    <span class="badge"            id="toll">{{ route.prix_peage }} €</span></div>
+
         <div id="wp-container">
             <h4>🗺️ Étapes du trajet</h4>
             <div id="wp-list">
                 <p class="wp-empty">Aucune étape ajoutée.</p>
             </div>
-            <button class="btn" onclick="clearWaypoints()">🗑️ Tout effacer</button>
+            <button class="btn btn-danger" onclick="clearWaypoints()">🗑️ Tout effacer</button>
+            <!-- ✅ Bouton reset vers itinéraire original -->
+            <button class="btn btn-reset" id="btn-reset" onclick="resetToOriginal()" disabled>
+                🔄 Revenir à l'itinéraire original
+            </button>
         </div>
 
         <div class="instructions">
             <b>Astuces :</b><br>
             🖱️ <b>Déplacer</b> le départ/arrivée à la souris.<br>
             ➕ <b>Clic-droit</b> sur la carte pour ajouter une étape.<br>
+            🔄 <b>Reset</b> pour revenir au tracé d'origine.<br>
         </div>
     </div>
 
+    <div id="loading-indicator">⏳ Calcul en cours...</div>
     <div id="map"></div>
 
     <script>
-        const routeId = "{{ route_id }}";
+        const routeId   = "{{ route_id }}";
         const serverUrl = "{{ server_url }}";
-        
-        // Coordonnées de l'itinéraire ACTIF (celui qui se recalcule)
-        let pythonCoords = {{ route.polyline | tojson }};
-        let geojsonCoords = pythonCoords.map(c => [c[1], c[0]]);
 
-        // 🌟 MODIFICATION 1 : Stocker les coordonnées de l'itinéraire INITIAL (en grisé)
-        const originalPythonCoords = {{ route.polyline | tojson }};
-        const originalGeojsonCoords = originalPythonCoords.map(c => [c[1], c[0]]);
+        // ═══════════════════════════════════════════════════════
+        //  DONNÉES INITIALES
+        //  ✅ On utilise polyline_current pour l'affichage actif
+        //  ✅ On garde polyline_original comme référence immuable
+        // ═══════════════════════════════════════════════════════
 
-        const startCoord = geojsonCoords[0];
-        const endCoord = geojsonCoords[geojsonCoords.length - 1];
+        // polyline_current = ce qui s'affiche (peut être modifié)
+        const initPolylineCurrent  = {{ (route.polyline_current  or route.polyline) | tojson }};
+        // polyline_original = référence immuable côté JS (jamais modifié)
+        const initPolylineOriginal = {{ (route.polyline_original or route.polyline) | tojson }};
+
+        // Conversion [lat, lng] → [lng, lat] pour MapLibre
+        let geojsonCoords         = initPolylineCurrent.map(c  => [c[1], c[0]]);
+        const originalGeojsonCoords = initPolylineOriginal.map(c => [c[1], c[0]]);
+
+        // ✅ Départ/arrivée toujours calés sur la route ORIGINALE
+        // (évite que le drag précédent décale les marqueurs)
+        const startCoord = originalGeojsonCoords[0];
+        const endCoord   = originalGeojsonCoords[originalGeojsonCoords.length - 1];
+
+        // Flag : est-ce que la route a été modifiée ?
+        let isModified = false;
+
+        // ═══════════════════════════════════════════════════════
+        //  INITIALISATION CARTE
+        // ═══════════════════════════════════════════════════════
 
         const map = new maplibregl.Map({
             container: 'map',
@@ -100,116 +146,178 @@
         map.addControl(new maplibregl.NavigationControl());
 
         let originMarker, destMarker;
-        let waypoints = []; // Tableau d'objets : { id, marker }
+        let waypoints = [];
 
         map.on('load', () => {
-            // 🌟 MODIFICATION 2 : Ajouter la source pour l'itinéraire ORIGINAL (grisé)
+
+            // ── Tracé ORIGINAL (grisé, en dessous) ──────────────
             map.addSource('originalRouteSource', {
-                'type': 'geojson',
-                'data': {
-                    'type': 'Feature',
-                    'properties': {},
-                    'geometry': { 'type': 'LineString', 'coordinates': originalGeojsonCoords }
-                }
+                type: 'geojson',
+                data: buildGeoJSON(originalGeojsonCoords)
             });
-
-            // 🌟 MODIFICATION 3 : Ajouter le calque visuel pour l'itinéraire ORIGINAL
-            // On le dessine EN PREMIER pour qu'il soit en dessous du tracé bleu principal.
             map.addLayer({
-                'id': 'originalRouteLayer',
-                'type': 'line',
-                'source': 'originalRouteSource',
-                'layout': { 'line-join': 'round', 'line-cap': 'round' },
-                'paint': { 
-                    'line-color': '#95a5a6', // Couleur grise (Concrete)
-                    'line-width': 5,         // Légèrement plus fin
-                    'line-opacity': 0.5      // Semi-transparent
+                id: 'originalRouteLayer',
+                type: 'line',
+                source: 'originalRouteSource',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color':   '#95a5a6',
+                    'line-width':   5,
+                    'line-opacity': 0.0   // ✅ Caché par défaut, visible seulement si modifié
                 }
             });
 
-            // Source et calque pour l'itinéraire ACTIF (bleu, recalculé)
+            // ── Tracé ACTIF (bleu, au dessus) ───────────────────
             map.addSource('routeSource', {
-                'type': 'geojson',
-                'data': {
-                    'type': 'Feature',
-                    'properties': {},
-                    'geometry': { 'type': 'LineString', 'coordinates': geojsonCoords }
-                }
+                type: 'geojson',
+                data: buildGeoJSON(geojsonCoords)
             });
-
             map.addLayer({
-                'id': 'routeLayer',
-                'type': 'line',
-                'source': 'routeSource',
-                'layout': { 'line-join': 'round', 'line-cap': 'round' },
-                'paint': { 'line-color': '#007cbf', 'line-width': 6, 'line-opacity': 0.8 }
+                id: 'routeLayer',
+                type: 'line',
+                source: 'routeSource',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#007cbf', 'line-width': 6, 'line-opacity': 0.85 }
             });
 
-            const bounds = new maplibregl.LngLatBounds(geojsonCoords[0], geojsonCoords[0]);
-            for (const coord of geojsonCoords) { bounds.extend(coord); }
-            map.fitBounds(bounds, { padding: 80 });
+            // ── Fit bounds sur le tracé actif ───────────────────
+            fitBoundsToCoords(geojsonCoords);
 
-            // Départ et Arrivée
+            // ── Marqueurs départ / arrivée ───────────────────────
             originMarker = new maplibregl.Marker({ color: '#27ae60', draggable: true })
                 .setLngLat(startCoord).addTo(map);
             destMarker = new maplibregl.Marker({ color: '#c0392b', draggable: true })
                 .setLngLat(endCoord).addTo(map);
 
-            originMarker.on('dragend', recalculateRoute);
-            destMarker.on('dragend', recalculateRoute);
+            originMarker.on('dragend', () => recalculateRoute());
+            destMarker.on('dragend',   () => recalculateRoute());
 
-            // Clic droit = Ajout d'une étape
-            map.on('contextmenu', (e) => {
-                addWaypoint(e.lngLat);
-            });
+            // ── Clic droit = ajout waypoint ──────────────────────
+            map.on('contextmenu', (e) => addWaypoint(e.lngLat));
+
+            // ── Détecte si la route est déjà modifiée au chargement ──
+            // (cas rechargement page après un drag précédent)
+            const currentStr  = JSON.stringify(initPolylineCurrent);
+            const originalStr = JSON.stringify(initPolylineOriginal);
+            if (currentStr !== originalStr) {
+                setModifiedState(true);
+            }
         });
 
-        // Ajouter une étape
-        function addWaypoint(lngLat) {
-            const id = Date.now(); // Identifiant unique
-            const wpMarker = new maplibregl.Marker({ color: '#3498db', draggable: true })
-                .setLngLat(lngLat)
-                .addTo(map);
+        // ═══════════════════════════════════════════════════════
+        //  HELPERS
+        // ═══════════════════════════════════════════════════════
 
-            const wpObj = { id: id, marker: wpMarker };
+        function buildGeoJSON(coords) {
+            return {
+                type: 'Feature',
+                properties: {},
+                geometry: { type: 'LineString', coordinates: coords }
+            };
+        }
+
+        function fitBoundsToCoords(coords) {
+            const bounds = new maplibregl.LngLatBounds(coords[0], coords[0]);
+            coords.forEach(c => bounds.extend(c));
+            map.fitBounds(bounds, { padding: 80 });
+        }
+
+        function setLoading(on) {
+            document.getElementById('loading-indicator').style.display = on ? 'block' : 'none';
+            map.setPaintProperty('routeLayer', 'line-opacity', on ? 0.3 : 0.85);
+        }
+
+        // ✅ Met à jour le badge et le bouton reset selon l'état
+        function setModifiedState(modified) {
+            isModified = modified;
+            const badge  = document.getElementById('route-state');
+            const btnReset = document.getElementById('btn-reset');
+
+            if (modified) {
+                badge.className = 'state-modified';
+                badge.textContent = '✏️ Itinéraire modifié';
+                btnReset.disabled = false;
+                // Afficher le tracé original en grisé pour comparaison
+                map.setPaintProperty('originalRouteLayer', 'line-opacity', 0.45);
+            } else {
+                badge.className = 'state-original';
+                badge.textContent = '✅ Itinéraire original';
+                btnReset.disabled = true;
+                // Cacher le tracé original (inutile si on est déjà dessus)
+                map.setPaintProperty('originalRouteLayer', 'line-opacity', 0.0);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
+        //  GESTION DES WAYPOINTS
+        // ═══════════════════════════════════════════════════════
+
+        function addWaypoint(lngLat) {
+            const id = Date.now();
+            const wpMarker = new maplibregl.Marker({ color: '#3498db', draggable: true })
+                .setLngLat(lngLat).addTo(map);
+
+            const wpObj = { id, marker: wpMarker };
             waypoints.push(wpObj);
 
             wpMarker.on('dragend', () => {
-                updateWaypointsList(); // Met à jour les coordonnées affichées
+                updateWaypointsList();
                 recalculateRoute();
             });
-            
-            wpMarker.getElement().addEventListener('dblclick', () => {
-                removeWaypoint(id);
-            });
+
+            wpMarker.getElement().addEventListener('dblclick', () => removeWaypoint(id));
 
             updateWaypointsList();
             recalculateRoute();
         }
 
-        // Supprimer une étape précise
         function removeWaypoint(id) {
             const index = waypoints.findIndex(w => w.id === id);
-            if (index > -1) {
-                waypoints[index].marker.remove(); // Retire de la carte
-                waypoints.splice(index, 1);       // Retire du tableau
-                updateWaypointsList();            // Met à jour la liste HTML
-                recalculateRoute();               // Recalcule le tracé
+            if (index === -1) return;
+
+            waypoints[index].marker.remove();
+            waypoints.splice(index, 1);
+            updateWaypointsList();
+
+            // ✅ FIX BUG PRINCIPAL :
+            // Si plus aucun waypoint ET départ/arrivée non bougés → restaurer l'original
+            if (waypoints.length === 0 && !hasMarkersMovedFromOriginal()) {
+                restoreOriginalDisplay();
+            } else {
+                recalculateRoute();
             }
         }
 
-        // Tout vider
         function clearWaypoints() {
             waypoints.forEach(wp => wp.marker.remove());
             waypoints = [];
             updateWaypointsList();
-            recalculateRoute();
+
+            // ✅ Même logique : si départ/arrivée non bougés → original
+            if (!hasMarkersMovedFromOriginal()) {
+                restoreOriginalDisplay();
+            } else {
+                recalculateRoute();
+            }
         }
 
-        // Mettre à jour l'affichage HTML de la liste
+        // Vérifie si les marqueurs ont été déplacés depuis l'original
+        function hasMarkersMovedFromOriginal() {
+            if (!originMarker || !destMarker) return false;
+            const oLng = originMarker.getLngLat();
+            const dLng = destMarker.getLngLat();
+            const threshold = 0.001; // ~100m
+            return (
+                Math.abs(oLng.lat - startCoord[1]) > threshold ||
+                Math.abs(oLng.lng - startCoord[0]) > threshold ||
+                Math.abs(dLng.lat - endCoord[1])   > threshold ||
+                Math.abs(dLng.lng - endCoord[0])   > threshold
+            );
+        }
+
         function updateWaypointsList() {
             const listDiv = document.getElementById('wp-list');
-            
+
             if (waypoints.length === 0) {
                 listDiv.innerHTML = '<p class="wp-empty">Aucune étape ajoutée. Clic-droit sur la carte pour en ajouter.</p>';
                 return;
@@ -218,21 +326,59 @@
             listDiv.innerHTML = '';
             waypoints.forEach((wp, index) => {
                 const lngLat = wp.marker.getLngLat();
-                // On affiche les coordonnées raccourcies pour que ça soit propre
-                const latStr = lngLat.lat.toFixed(4);
-                const lngStr = lngLat.lng.toFixed(4);
-                
-                const item = document.createElement('div');
+                const item   = document.createElement('div');
                 item.className = 'wp-item';
                 item.innerHTML = `
-                    <div><b>Étape ${index + 1}</b><br><span style="color:#7f8c8d; font-size:12px;">Coordonnées : ${latStr}, ${lngStr}</span></div>
-                    <div class="wp-remove" onclick="removeWaypoint(${wp.id})" title="Supprimer cette étape">❌</div>
+                    <div>
+                        <b>Étape ${index + 1}</b><br>
+                        <span style="color:#7f8c8d; font-size:12px;">
+                            ${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}
+                        </span>
+                    </div>
+                    <div class="wp-remove" onclick="removeWaypoint(${wp.id})" title="Supprimer">❌</div>
                 `;
                 listDiv.appendChild(item);
             });
         }
 
-        // Recalcul PTV
+        // ═══════════════════════════════════════════════════════
+        //  RESTAURATION ITINÉRAIRE ORIGINAL
+        // ═══════════════════════════════════════════════════════
+
+        // ✅ Restauration locale IMMÉDIATE (sans appel PTV, sans attente)
+        function restoreOriginalDisplay() {
+            geojsonCoords = [...originalGeojsonCoords];
+
+            map.getSource('routeSource').setData(buildGeoJSON(geojsonCoords));
+
+            // Remettre les marqueurs à leur position originale
+            originMarker.setLngLat(startCoord);
+            destMarker.setLngLat(endCoord);
+
+            setModifiedState(false);
+
+            // ✅ Reset aussi dans Firebase (async, non bloquant)
+            fetch(`${serverUrl}/api/reset_route/${routeId}`, { method: 'POST' })
+                .then(r => r.json())
+                .then(d => console.log('Firebase reset:', d))
+                .catch(e => console.warn('Reset Firebase échoué (non bloquant):', e));
+        }
+
+        // ✅ Bouton "Revenir à l'itinéraire original"
+        async function resetToOriginal() {
+            // 1. Reset visuel immédiat
+            restoreOriginalDisplay();
+
+            // 2. Supprimer tous les waypoints
+            waypoints.forEach(wp => wp.marker.remove());
+            waypoints = [];
+            updateWaypointsList();
+        }
+
+        // ═══════════════════════════════════════════════════════
+        //  RECALCUL PTV
+        // ═══════════════════════════════════════════════════════
+
         async function recalculateRoute() {
             const allPoints = [
                 originMarker.getLngLat(),
@@ -240,7 +386,7 @@
                 destMarker.getLngLat()
             ];
 
-            map.setPaintProperty('routeLayer', 'line-opacity', 0.3);
+            setLoading(true);
 
             try {
                 const response = await fetch(`${serverUrl}/api/recalculate_drag`, {
@@ -252,27 +398,27 @@
                     })
                 });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    
-                    document.getElementById('dist').innerText = data.distance_km + " km";
-                    document.getElementById('dur').innerText = data.duration_h + " h";
-                    document.getElementById('toll').innerText = data.prix_peage + " €";
-
-                    geojsonCoords = data.polyline.map(c => [c[1], c[0]]);
-                    
-                    // 🌟 MODIFICATION 4 : On ne met à jour QUE la source 'routeSource' (le tracé bleu).
-                    // La source 'originalRouteSource' (le tracé grisé) n'est jamais modifiée.
-                    map.getSource('routeSource').setData({
-                        'type': 'Feature',
-                        'properties': {},
-                        'geometry': { 'type': 'LineString', 'coordinates': geojsonCoords }
-                    });
+                if (!response.ok) {
+                    console.error('Erreur serveur:', response.status);
+                    return;
                 }
+
+                const data = await response.json();
+
+                document.getElementById('dist').innerText = data.distance_km + ' km';
+                document.getElementById('dur').innerText  = data.duration_h  + ' h';
+                document.getElementById('toll').innerText = data.prix_peage  + ' €';
+
+                geojsonCoords = data.polyline.map(c => [c[1], c[0]]);
+                map.getSource('routeSource').setData(buildGeoJSON(geojsonCoords));
+
+                // ✅ Marquer comme modifié après chaque recalcul PTV
+                setModifiedState(true);
+
             } catch (err) {
-                console.error(err);
+                console.error('Erreur recalcul:', err);
             } finally {
-                map.setPaintProperty('routeLayer', 'line-opacity', 0.8);
+                setLoading(false);
             }
         }
     </script>
