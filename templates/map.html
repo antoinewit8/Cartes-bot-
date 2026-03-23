@@ -7,10 +7,9 @@
 
     <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
     <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
-
     <style>
         body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; }/* ── Info box (inchangée) ── */
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
         #info-box {
             position: absolute; top: 20px; left: 20px;
             background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
@@ -52,95 +51,72 @@
         .popup-btn-dest:hover { background: #c0392b; }
         .popup-btn-cancel { background: #ecf0f1; color: #7f8c8d; }
         .popup-btn-cancel:hover { background: #dce1e7; }
-        /* ══════════════════════════════════════════
-           PANNEAU TOGGLE
-        ══════════════════════════════════════════ */
         #layer-panel {
-            position: absolute;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 20;
-            display: flex;
-            gap: 12px;
-            background: rgba(255,255,255,0.95);
-            backdrop-filter: blur(10px);
-            padding: 12px 18px;
-            border-radius: 40px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.18);
-            border: 1px solid #e1e8ed;
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            z-index: 20; display: flex; gap: 12px;
+            background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
+            padding: 12px 18px; border-radius: 40px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.18); border: 1px solid #e1e8ed;
         }
         .toggle-btn {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            border-radius: 30px;
-            border: 2px solid transparent;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: bold;
-            transition: all 0.22s ease;
-            user-select: none;
-            background: #f0f3f5;
-            color: #5d6d7e;
+            display: flex; align-items: center; gap: 8px;
+            padding: 8px 16px; border-radius: 30px; border: 2px solid transparent;
+            cursor: pointer; font-size: 13px; font-weight: bold;
+            transition: all 0.22s ease; user-select: none;
+            background: #f0f3f5; color: #5d6d7e;
         }
-        .toggle-btn.active-road {
-            background: #eaf4fb;
-            color: #1a6ea8;
-            border-color: #3498db;
-        }
-        .toggle-btn.active-pl {
-            background: #fdf2ec;
-            color: #c0392b;
-            border-color: #e74c3c;
-        }
-        .toggle-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: inline-block;
-            flex-shrink: 0;
-        }
+        .toggle-btn.active-road { background: #eaf4fb; color: #1a6ea8; border-color: #3498db; }
+        .toggle-btn.active-pl   { background: #fdf2ec; color: #c0392b; border-color: #e74c3c; }
+        .toggle-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
         .dot-road { background: #3498db; }
         .dot-pl   { background: #e74c3c; }
-        .toggle-btn .badge-loading {
-            font-size: 11px;
-            opacity: 0.7;
-        }
+        .toggle-btn .badge-loading { font-size: 11px; opacity: 0.7; }
     </style>
 </head>
 <body>
 
     <!-- ═══ INFO BOX ═══ -->
     <div id="info-box">
-        <h3>📍 {{ route.origin }} <br>🏁 {{ route.dest }}</h3>
+        <h3>🗺️ {{ route.origin }} → {{ route.dest }}</h3>
+
         <div id="route-state" class="state-original">✅ Itinéraire original</div>
-        <div class="stat-row">Distance <span class="badge badge-blue" id="dist">{{ route.distance_km }} km</span></div>
-        <div class="stat-row">Durée    <span class="badge"            id="dur" >{{ route.duration_h }} h</span></div>
-        <div class="stat-row">Péage    <span class="badge"            id="toll">{{ route.prix_peage }} €</span></div>
-        <div id="wp-container">
-            <h4>🗺️ Étapes du trajet</h4>
-            <div id="wp-list">
-                <p class="wp-empty">Aucune étape ajoutée.</p>
-            </div>
-            <button class="btn btn-danger" onclick="clearWaypoints()">🗑️ Tout effacer</button>
-            <button class="btn btn-reset" id="btn-reset" onclick="resetToOriginal()" disabled>
-                🔄 Revenir à l'itinéraire original
-            </button>
+
+        <div class="stat-row">
+            <span>📏 Distance</span>
+            <span class="badge" id="dist">{{ route.distance_km }} km</span>
         </div>
+        <div class="stat-row">
+            <span>⏱️ Durée</span>
+            <span class="badge" id="dur">{{ route.duration_h }} h</span>
+        </div>
+        <div class="stat-row">
+            <span>💶 Péages</span>
+            <span class="badge badge-blue" id="toll">{{ route.prix_peage }} €</span>
+        </div>
+
+        <!-- Waypoints -->
+        <div id="wp-container">
+            <h4>📍 Étapes</h4>
+            <div id="wp-list"><p class="wp-empty">Aucune étape</p></div>
+            <button class="btn btn-danger" onclick="clearWaypoints()">🗑️ Supprimer les étapes</button>
+            <button class="btn btn-reset" id="btn-reset" onclick="resetToOriginal()" disabled>🔄 Réinitialiser</button>
+        </div>
+
+        <!-- Recherche -->
         <div id="search-box">
             <h4>🔍 Rechercher une adresse</h4>
-            <input id="search-input" type="text" placeholder="Ex : 14 rue de la Paix, Paris" autocomplete="off" />
+            <input type="text" id="search-input" placeholder="Ex: Lyon, 69000" />
             <button id="search-btn" onclick="searchAddress()">Rechercher</button>
             <div id="search-error">❌ Adresse introuvable</div>
         </div>
+
+        <!-- Astuces -->
         <div class="instructions">
             <b>Astuces :</b><br>
             🖱️ <b>Déplacer</b> le départ/arrivée à la souris.<br>
             ➕ <b>Clic-droit</b> sur la carte pour ajouter une étape.<br>
             🔍 <b>Rechercher</b> une adresse pour la définir comme départ ou arrivée.<br>
-            🔄 <b>Reset</b> pour revenir au tracé d'origine.<br>
+            🔄 <b>Reset</b> pour revenir au tracé d'origine.
         </div>
     </div>
 
@@ -167,7 +143,9 @@
         const initPolylineCurrent  = {{ (route.polyline_current  or route.polyline) | tojson }};
         const initPolylineOriginal = {{ (route.polyline_original or route.polyline) | tojson }};
 
+        // ── Décodage polyline (accepte string encodée OU tableau de coords) ──
         function decode(encoded) {
+            if (typeof encoded !== 'string') return encoded; // déjà un tableau [[lng,lat],...]
             let index = 0, lat = 0, lng = 0, coordinates = [];
             while (index < encoded.length) {
                 let b, shift = 0, result = 0;
@@ -200,37 +178,36 @@
         let originMarker, destMarker;
         let waypoints = [];
 
+        // ═══════════════════════════════════════════════════════
+        //  MAP LOAD
+        // ═══════════════════════════════════════════════════════
         map.on('load', () => {
 
-            // ── Tracé ORIGINAL grisé ────────────────────────────
+            // ── Tracé original (gris, en dessous) ───────────────
             map.addSource('originalRouteSource', {
                 type: 'geojson',
                 data: buildGeoJSON(originalGeojsonCoords)
             });
             map.addLayer({
-                id: 'originalRouteLayer', type: 'line',
+                id: 'originalRouteLayer',
+                type: 'line',
                 source: 'originalRouteSource',
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#95a5a6', 'line-width': 5, 'line-opacity': 0.0 }
+                paint: { 'line-color': '#95a5a6', 'line-width': 4, 'line-opacity': 0, 'line-dasharray': [2, 2] }
             });
 
-            // ── Tracé ACTIF bleu ────────────────────────────────
+            // ── Tracé courant (bleu) ─────────────────────────────
             map.addSource('routeSource', {
                 type: 'geojson',
                 data: buildGeoJSON(geojsonCoords)
             });
             map.addLayer({
-                id: 'routeLayer', type: 'line',
+                id: 'routeLayer',
+                type: 'line',
                 source: 'routeSource',
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: { 'line-color': '#007cbf', 'line-width': 6, 'line-opacity': 0.85 }
+                paint: { 'line-color': '#3498db', 'line-width': 5, 'line-opacity': 0.85 }
             });
-
-            // ── COUCHE A : Types de routes ───────────────────────
-            _initRoadTypeLayer();
-
-            // ── COUCHE B : Restrictions PL ───────────────────────
-            _initPLLayer();
 
             fitBoundsToCoords(geojsonCoords);
 
@@ -255,94 +232,65 @@
                 e.preventDefault();
                 addWaypoint(e.lngLat.lng, e.lngLat.lat);
             });
+
+            // ── Init couches toggle ──────────────────────────────
+            _initRoadTypeLayer();
+            _initPLLayer();
         });
 
         // ═══════════════════════════════════════════════════════
-        //  COUCHE A — TYPES DE ROUTES  ← MODIFIÉE
+        //  COUCHE A — TYPES DE ROUTES
         // ═══════════════════════════════════════════════════════
         function _initRoadTypeLayer() {
-
             map.addSource('osmRoads', {
                 type: 'vector',
                 url: 'https://tiles.stadiamaps.com/data/openmaptiles.json'
             });
 
             const roadDefs = [
-                {
-                    id:     'highlight-motorway',
-                    filter: ['in', 'class', 'motorway', 'motorway_link'],
-                    color:  '#e74c3c',   // 🔴 Rouge — Autoroutes
-                    width:  5
-                },
-                {
-                    id:     'highlight-trunk',
-                    filter: ['in', 'class', 'trunk', 'trunk_link', 'primary'],
-                    color:  '#e67e22',   // 🟠 Orange — Nationales/RN
-                    width:  4
-                },
-                {
-                    id:     'highlight-secondary',
-                    filter: ['in', 'class', 'secondary', 'tertiary'],
-                    color:  '#27ae60',   // 🟢 Vert — Départementales
-                    width:  3
-                }
+                { id: 'highlight-motorway',  filter: ['in', 'class', 'motorway', 'motorway_link'],             color: '#e74c3c', width: 5 },
+                { id: 'highlight-trunk',     filter: ['in', 'class', 'trunk', 'trunk_link', 'primary'],        color: '#e67e22', width: 4 },
+                { id: 'highlight-secondary', filter: ['in', 'class', 'secondary', 'tertiary'],                 color: '#27ae60', width: 3 }
             ];
 
             roadDefs.forEach(def => {
                 map.addLayer({
-                    id:             def.id,
-                    type:           'line',
-                    source:         'osmRoads',
+                    id: def.id,
+                    type: 'line',
+                    source: 'osmRoads',
                     'source-layer': 'transportation',
-                    filter:         def.filter,
+                    filter: def.filter,
                     layout: { 'line-join': 'round', 'line-cap': 'round' },
-                    paint: {
-                        'line-color':   def.color,
-                        'line-width':   def.width,
-                        'line-opacity': 0    // caché par défaut
-                    }
-                }, 'routeLayer');
+                    paint: { 'line-color': def.color, 'line-width': def.width, 'line-opacity': 0 }
+                });
             });
         }
 
         // ═══════════════════════════════════════════════════════
-        //  COUCHE B — RESTRICTIONS PL
+        //  COUCHE B — RESTRICTIONS PL (Overpass)
         // ═══════════════════════════════════════════════════════
-        async function _initPLLayer() {
-            const statusEl = document.getElementById('pl-status');
-            statusEl.textContent = '⏳';
-
+        function _initPLLayer() {
             map.addSource('plSource', {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] }
             });
 
             map.addLayer({
-                id:     'plLayerBlock',
-                type:   'line',
+                id: 'plLayerBlock',
+                type: 'line',
                 source: 'plSource',
                 filter: ['==', ['get', 'severity'], 'block'],
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color':    '#e74c3c',
-                    'line-width':    6,
-                    'line-opacity':  0,
-                    'line-dasharray': [2, 2]
-                }
+                paint: { 'line-color': '#e74c3c', 'line-width': 4, 'line-opacity': 0 }
             });
 
             map.addLayer({
-                id:     'plLayerWarn',
-                type:   'line',
+                id: 'plLayerWarn',
+                type: 'line',
                 source: 'plSource',
                 filter: ['==', ['get', 'severity'], 'warn'],
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color':    '#f39c12',
-                    'line-width':    5,
-                    'line-opacity':  0,
-                    'line-dasharray': [3, 3]
-                }
+                paint: { 'line-color': '#f39c12', 'line-width': 3, 'line-opacity': 0 }
             });
 
             const plPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
@@ -362,6 +310,11 @@
                     plPopup.remove();
                 });
             });
+        }
+
+        async function _loadPLData() {
+            const statusEl = document.getElementById('pl-status');
+            statusEl.textContent = '⏳';
 
             try {
                 const allCoords = [...geojsonCoords, ...originalGeojsonCoords];
@@ -380,7 +333,7 @@
 
                 const res = await fetch('https://overpass-api.de/api/interpreter', {
                     method: 'POST',
-                    body:   'data=' + encodeURIComponent(query)
+                    body: 'data=' + encodeURIComponent(query)
                 });
 
                 if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
@@ -395,16 +348,8 @@
                         if ((mw && mw < 3.5) || (mh && mh < 3.5)) severity = 'block';
                         return {
                             type: 'Feature',
-                            properties: {
-                                severity,
-                                maxweight: mw || null,
-                                maxheight: mh || null,
-                                name:      el.tags?.name || null
-                            },
-                            geometry: {
-                                type: 'LineString',
-                                coordinates: el.geometry.map(pt => [pt.lon, pt.lat])
-                            }
+                            properties: { severity, maxweight: mw || null, maxheight: mh || null, name: el.tags?.name || null },
+                            geometry: { type: 'LineString', coordinates: el.geometry.map(pt => [pt.lon, pt.lat]) }
                         };
                     });
 
@@ -420,6 +365,8 @@
         // ═══════════════════════════════════════════════════════
         //  TOGGLE LOGIQUE
         // ═══════════════════════════════════════════════════════
+        let plDataLoaded = false;
+
         function toggleLayer(key) {
             layerState[key] = !layerState[key];
             const on = layerState[key];
@@ -430,7 +377,12 @@
                     map.setPaintProperty(id, 'line-opacity', opacity);
                 });
                 _setToggleBtn('toggle-road', on, 'active-road');
+
             } else if (key === 'pl') {
+                if (on && !plDataLoaded) {
+                    plDataLoaded = true;
+                    _loadPLData();
+                }
                 map.setPaintProperty('plLayerBlock', 'line-opacity', on ? 0.85 : 0);
                 map.setPaintProperty('plLayerWarn',  'line-opacity', on ? 0.75 : 0);
                 _setToggleBtn('toggle-pl', on, 'active-pl');
@@ -481,22 +433,25 @@
         // ═══════════════════════════════════════════════════════
         //  WAYPOINTS
         // ═══════════════════════════════════════════════════════
-        async function addWaypoint(lng, lat) {
-            const idx = waypoints.length;
-            const el  = document.createElement('div');
-            el.style.cssText = `width:18px;height:18px;background:#8e44ad;border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:grab;`;
+        function addWaypoint(lng, lat) {
+            const el = document.createElement('div');
+            el.style.cssText = `width:14px;height:14px;background:#9b59b6;border:2px solid white;border-radius:50%;box-shadow:0 2px 4px rgba(0,0,0,0.3);cursor:grab;`;
             const marker = new maplibregl.Marker({ element: el, draggable: true })
                 .setLngLat([lng, lat])
                 .addTo(map);
+
+            const idx = waypoints.length;
             waypoints.push({ marker, lng, lat });
-            marker.on('dragend', async () => {
+
+            marker.on('dragend', () => {
                 const pos = marker.getLngLat();
                 waypoints[idx].lng = pos.lng;
                 waypoints[idx].lat = pos.lat;
-                await recalculateRoute();
+                recalculateRoute();
             });
+
             updateWaypointsList();
-            await recalculateRoute();
+            recalculateRoute();
         }
 
         function removeWaypoint(idx) {
@@ -516,12 +471,12 @@
         function updateWaypointsList() {
             const list = document.getElementById('wp-list');
             if (waypoints.length === 0) {
-                list.innerHTML = '<p class="wp-empty">Aucune étape ajoutée.</p>';
+                list.innerHTML = '<p class="wp-empty">Aucune étape</p>';
                 return;
             }
             list.innerHTML = waypoints.map((wp, i) => `
                 <div class="wp-item">
-                    <span>📍 Étape ${i+1}<br><small>${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}</small></span>
+                    <span>📍 Étape ${i + 1} (${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)})</span>
                     <span class="wp-remove" onclick="removeWaypoint(${i})">✕</span>
                 </div>
             `).join('');
@@ -535,22 +490,23 @@
             try {
                 const origin = originMarker.getLngLat();
                 const dest   = destMarker.getLngLat();
-                const wps    = waypoints.map(wp => ({ lat: wp.lat, lng: wp.lng }));
+                const wps    = waypoints.map(wp => ({ lat: wp.marker.getLngLat().lat, lng: wp.marker.getLngLat().lng }));
 
                 const res = await fetch(`${serverUrl}/api/recalculate`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        route_id:   routeId,
-                        origin:     { lat: origin.lat, lng: origin.lng },
-                        dest:       { lat: dest.lat,   lng: dest.lng   },
-                        waypoints:  wps
+                        route_id:  routeId,
+                        origin:    { lat: origin.lat, lng: origin.lng },
+                        dest:      { lat: dest.lat,   lng: dest.lng   },
+                        waypoints: wps
                     })
                 });
 
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
 
+                // ← FIX : accepte string encodée OU tableau de coords
                 const newCoords = decode(data.polyline);
                 map.getSource('routeSource').setData(buildGeoJSON(newCoords));
 
@@ -559,6 +515,7 @@
                 document.getElementById('toll').textContent = data.prix_peage  + ' €';
 
                 setModifiedState(true);
+
             } catch(e) {
                 console.error('Recalcul échoué:', e);
             } finally {
@@ -612,25 +569,27 @@
             }
         }
 
-        document.getElementById('search-input').addEventListener('keydown', e => {
-            if (e.key === 'Enter') searchAddress();
-        });
-
         function _placeSearchPin(lat, lng, label) {
-            if (searchMarker) { searchMarker.remove(); searchMarker = null; }
-            if (searchPopup)  { searchPopup.remove();  searchPopup  = null; }
+            if (searchMarker) searchMarker.remove();
+            if (searchPopup)  searchPopup.remove();
+
             const el = document.createElement('div');
-            el.style.cssText = `width:22px;height:22px;background:#8e44ad;border:3px solid white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:pointer;`;
-            searchMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([lng, lat]).addTo(map);
-            map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 13), duration: 800 });
-            searchPopup = new maplibregl.Popup({ className: 'search-popup', closeButton: false, maxWidth: '220px' })
+            el.style.cssText = `width:18px;height:18px;background:#f39c12;border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);`;
+            searchMarker = new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
+
+            const div = document.createElement('div');
+            div.innerHTML = `
+                <div class="popup-label">📍 ${label}</div>
+                <button class="popup-btn popup-btn-origin" onclick="_applySearchResult(${lat}, ${lng}, 'origin')">🟢 Définir comme Départ</button>
+                <button class="popup-btn popup-btn-dest"   onclick="_applySearchResult(${lat}, ${lng}, 'dest')">🔴 Définir comme Arrivée</button>
+                <button class="popup-btn popup-btn-cancel" onclick="_cancelSearchPin()">✕ Annuler</button>
+            `;
+            searchPopup = new maplibregl.Popup({ offset: 25 })
                 .setLngLat([lng, lat])
-                .setHTML(`
-                    <div class="popup-label">📍 ${label}</div>
-                    <button class="popup-btn popup-btn-origin" onclick="_applySearchResult(${lat},${lng},'origin')">🟢 Définir comme départ</button>
-                    <button class="popup-btn popup-btn-dest"   onclick="_applySearchResult(${lat},${lng},'dest')">🔴 Définir comme arrivée</button>
-                    <button class="popup-btn popup-btn-cancel" onclick="_cancelSearchPin()">Annuler</button>`)
+                .setDOMContent(div)
                 .addTo(map);
+
+            map.flyTo({ center: [lng, lat], zoom: 13 });
         }
 
         async function _applySearchResult(lat, lng, role) {
@@ -645,7 +604,10 @@
             if (searchPopup)  { searchPopup.remove();  searchPopup  = null; }
         }
 
+        document.getElementById('search-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter') searchAddress();
+        });
+
     </script>
 </body>
 </html>
-
