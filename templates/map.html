@@ -10,9 +10,7 @@
 
     <style>
         body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-
-        /* ── Info box (inchangée) ── */
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }/* ── Info box (inchangée) ── */
         #info-box {
             position: absolute; top: 20px; left: 20px;
             background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
@@ -28,40 +26,34 @@
         #wp-container { margin-top: 25px; background: #f8f9fa; padding: 15px; border-radius: 8px; border: 1px solid #e9ecef; }
         h4 { margin: 0 0 12px 0; font-size: 14px; color: #7f8c8d; text-transform: uppercase; letter-spacing: 0.5px; }
         .wp-item { display: flex; justify-content: space-between; align-items: center; background: white; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 4px solid #3498db; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        .wp-remove { color: #e74c3c; cursor: pointer; font-size: 16px; padding: 0 5px; transition: 0.2s; }
-        .wp-remove:hover { color: #c0392b; transform: scale(1.2); }
-        .wp-empty { font-size: 13px; color: #95a5a6; font-style: italic; margin: 0; text-align: center; }
-        .instructions { font-size: 13px; color: #7f8c8d; margin-top: 20px; line-height: 1.5; }
-        .btn { margin-top: 10px; padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; width: 100%; font-weight: bold; transition: 0.2s; }
+        .wp-remove { color: #e74c3c; cursor: pointer; font-size: 16px; }
+        .wp-empty { color: #aaa; font-size: 13px; text-align: center; margin: 0; }
+        .btn { width: 100%; padding: 10px; margin-top: 8px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; transition: background 0.2s; }
         .btn-danger { background: #e74c3c; color: white; }
         .btn-danger:hover { background: #c0392b; }
-        .btn-reset { background: #f39c12; color: white; }
-        .btn-reset:hover { background: #d68910; }
+        .btn-reset { background: #3498db; color: white; }
+        .btn-reset:hover { background: #2980b9; }
         .btn-reset:disabled { background: #bdc3c7; cursor: not-allowed; }
-        #route-state { font-size: 12px; text-align: center; padding: 5px 10px; border-radius: 20px; margin-bottom: 15px; font-weight: bold; }
-        .state-original { background: #d5f5e3; color: #1e8449; }
-        .state-modified { background: #fdebd0; color: #d35400; }
-        #loading-indicator { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,0,0,0.7); color: white; padding: 15px 25px; border-radius: 8px; z-index: 100; font-size: 15px; font-weight: bold; }
-        #search-box { margin-top: 20px; border-top: 1px solid #e1e8ed; padding-top: 15px; }
-        #search-box h4 { margin: 0 0 10px 0; font-size: 13px; color: #7f8c8d; text-transform: uppercase; letter-spacing: 0.5px; }
-        #search-input { width: 100%; padding: 9px 10px; border: 1px solid #dce1e7; border-radius: 6px; font-size: 14px; box-sizing: border-box; outline: none; transition: border 0.2s; }
-        #search-input:focus { border-color: #3498db; }
-        #search-btn { margin-top: 8px; padding: 9px; width: 100%; background: #3498db; color: white; border: none; border-radius: 6px; font-size: 14px; font-weight: bold; cursor: pointer; transition: 0.2s; }
-        #search-btn:hover { background: #2980b9; }
-        #search-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
-        #search-error { font-size: 12px; color: #e74c3c; margin-top: 6px; display: none; }
-        .search-popup .maplibregl-popup-content { padding: 12px; border-radius: 8px; font-family: 'Segoe UI', Arial, sans-serif; box-shadow: 0 4px 12px rgba(0,0,0,0.2); min-width: 180px; }
-        .popup-label { font-size: 13px; font-weight: bold; color: #2c3e50; margin-bottom: 10px; word-break: break-word; }
-        .popup-btn { display: block; width: 100%; padding: 8px; margin-bottom: 6px; border: none; border-radius: 5px; font-size: 13px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        #search-box { margin-top: 20px; }
+        #search-input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; box-sizing: border-box; margin-bottom: 6px; }
+        #search-btn { width: 100%; padding: 8px; background: #2ecc71; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        #search-btn:hover { background: #27ae60; }
+        #search-error { display: none; color: #e74c3c; font-size: 12px; margin-top: 4px; }
+        .instructions { margin-top: 20px; font-size: 12px; color: #7f8c8d; background: #f8f9fa; padding: 12px; border-radius: 6px; line-height: 1.8; }
+        #loading-indicator { display: none; position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.75); color: white; padding: 10px 20px; border-radius: 20px; z-index: 30; font-size: 14px; }
+        .state-original { background: #d5f5e3; color: #1e8449; padding: 6px 10px; border-radius: 6px; font-size: 13px; font-weight: bold; margin-bottom: 15px; text-align: center; }
+        .state-modified  { background: #fdebd0; color: #d35400; padding: 6px 10px; border-radius: 6px; font-size: 13px; font-weight: bold; margin-bottom: 15px; text-align: center; }
+        .maplibregl-popup-content { padding: 12px; border-radius: 8px; }
+        .popup-label { font-size: 13px; font-weight: bold; color: #2c3e50; margin-bottom: 10px; }
+        .popup-btn { display: block; width: 100%; padding: 8px; margin-top: 6px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: bold; }
         .popup-btn-origin { background: #2ecc71; color: white; }
         .popup-btn-origin:hover { background: #27ae60; }
         .popup-btn-dest { background: #e74c3c; color: white; }
         .popup-btn-dest:hover { background: #c0392b; }
         .popup-btn-cancel { background: #ecf0f1; color: #7f8c8d; }
         .popup-btn-cancel:hover { background: #dce1e7; }
-
         /* ══════════════════════════════════════════
-           PANNEAU TOGGLE — NOUVEAU
+           PANNEAU TOGGLE
         ══════════════════════════════════════════ */
         #layer-panel {
             position: absolute;
@@ -78,8 +70,6 @@
             box-shadow: 0 4px 20px rgba(0,0,0,0.18);
             border: 1px solid #e1e8ed;
         }
-
-        /* Bouton toggle individuel */
         .toggle-btn {
             display: flex;
             align-items: center;
@@ -95,8 +85,6 @@
             background: #f0f3f5;
             color: #5d6d7e;
         }
-
-        /* État ON */
         .toggle-btn.active-road {
             background: #eaf4fb;
             color: #1a6ea8;
@@ -107,8 +95,6 @@
             color: #c0392b;
             border-color: #e74c3c;
         }
-
-        /* Petite pastille colorée dans le bouton */
         .toggle-dot {
             width: 10px;
             height: 10px;
@@ -118,8 +104,6 @@
         }
         .dot-road { background: #3498db; }
         .dot-pl   { background: #e74c3c; }
-
-        /* Badge "chargement" sur le bouton PL */
         .toggle-btn .badge-loading {
             font-size: 11px;
             opacity: 0.7;
@@ -128,14 +112,13 @@
 </head>
 <body>
 
-    <!-- ═══ INFO BOX (inchangée) ═══ -->
+    <!-- ═══ INFO BOX ═══ -->
     <div id="info-box">
         <h3>📍 {{ route.origin }} <br>🏁 {{ route.dest }}</h3>
         <div id="route-state" class="state-original">✅ Itinéraire original</div>
         <div class="stat-row">Distance <span class="badge badge-blue" id="dist">{{ route.distance_km }} km</span></div>
         <div class="stat-row">Durée    <span class="badge"            id="dur" >{{ route.duration_h }} h</span></div>
         <div class="stat-row">Péage    <span class="badge"            id="toll">{{ route.prix_peage }} €</span></div>
-
         <div id="wp-container">
             <h4>🗺️ Étapes du trajet</h4>
             <div id="wp-list">
@@ -146,14 +129,12 @@
                 🔄 Revenir à l'itinéraire original
             </button>
         </div>
-
         <div id="search-box">
             <h4>🔍 Rechercher une adresse</h4>
             <input id="search-input" type="text" placeholder="Ex : 14 rue de la Paix, Paris" autocomplete="off" />
             <button id="search-btn" onclick="searchAddress()">Rechercher</button>
             <div id="search-error">❌ Adresse introuvable</div>
         </div>
-
         <div class="instructions">
             <b>Astuces :</b><br>
             🖱️ <b>Déplacer</b> le départ/arrivée à la souris.<br>
@@ -163,32 +144,17 @@
         </div>
     </div>
 
-    <!-- ═══ PANNEAU TOGGLE COUCHES — NOUVEAU ═══ -->
+    <!-- ═══ PANNEAU TOGGLE COUCHES ═══ -->
     <div id="layer-panel">
-
-        <!-- Toggle A : Types de routes -->
-        <button
-            class="toggle-btn"
-            id="toggle-road"
-            onclick="toggleLayer('road')"
-            title="Colorier autoroutes / nationales / départementales"
-        >
+        <button class="toggle-btn" id="toggle-road" onclick="toggleLayer('road')" title="Colorier autoroutes / nationales / départementales">
             <span class="toggle-dot dot-road"></span>
             🛣️ Types de routes
         </button>
-
-        <!-- Toggle B : Restrictions PL -->
-        <button
-            class="toggle-btn"
-            id="toggle-pl"
-            onclick="toggleLayer('pl')"
-            title="Segments interdits ou limités aux poids lourds (44t / 4m)"
-        >
+        <button class="toggle-btn" id="toggle-pl" onclick="toggleLayer('pl')" title="Segments interdits ou limités aux poids lourds">
             <span class="toggle-dot dot-pl"></span>
             🚛 Restrictions PL
             <span class="badge-loading" id="pl-status"></span>
         </button>
-
     </div>
 
     <div id="loading-indicator">⏳ Calcul en cours...</div>
@@ -198,43 +164,39 @@
         const routeId   = "{{ route_id }}";
         const serverUrl = "{{ server_url }}";
 
-        // ═══════════════════════════════════════════════════════
-        //  DONNÉES INITIALES (inchangées)
-        // ═══════════════════════════════════════════════════════
-
         const initPolylineCurrent  = {{ (route.polyline_current  or route.polyline) | tojson }};
         const initPolylineOriginal = {{ (route.polyline_original or route.polyline) | tojson }};
 
-        let geojsonCoords           = initPolylineCurrent.map(c  => [c[1], c[0]]);
-        const originalGeojsonCoords = initPolylineOriginal.map(c => [c[1], c[0]]);
+        function decode(encoded) {
+            let index = 0, lat = 0, lng = 0, coordinates = [];
+            while (index < encoded.length) {
+                let b, shift = 0, result = 0;
+                do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+                lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+                shift = 0; result = 0;
+                do { b = encoded.charCodeAt(index++) - 63; result |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+                lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+                coordinates.push([lng / 1e5, lat / 1e5]);
+            }
+            return coordinates;
+        }
 
-        const startCoord = originalGeojsonCoords[0];
-        const endCoord   = originalGeojsonCoords[originalGeojsonCoords.length - 1];
-
-        let isModified = false;
-
-        // ═══════════════════════════════════════════════════════
-        //  ÉTAT DES COUCHES — NOUVEAU
-        // ═══════════════════════════════════════════════════════
-
-        const layerState = {
-            road: false,   // couche A désactivée par défaut
-            pl:   false    // couche B désactivée par défaut
-        };
-
-        // ═══════════════════════════════════════════════════════
-        //  INITIALISATION CARTE
-        // ═══════════════════════════════════════════════════════
+        const geojsonCoords         = decode(initPolylineCurrent);
+        const originalGeojsonCoords = decode(initPolylineOriginal);
+        const startCoord = geojsonCoords[0];
+        const endCoord   = geojsonCoords[geojsonCoords.length - 1];
 
         const map = new maplibregl.Map({
             container: 'map',
             style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
             center: startCoord,
-            zoom: 5
+            zoom: 7
         });
 
-        map.addControl(new maplibregl.NavigationControl());
+        map.addControl(new maplibregl.NavigationControl(), 'top-right');
 
+        const layerState = { road: false, pl: false };
+        let isModified = false;
         let originMarker, destMarker;
         let waypoints = [];
 
@@ -264,123 +226,97 @@
                 paint: { 'line-color': '#007cbf', 'line-width': 6, 'line-opacity': 0.85 }
             });
 
-            // ── COUCHE A : Types de routes ── NOUVEAU ───────────
+            // ── COUCHE A : Types de routes ───────────────────────
             _initRoadTypeLayer();
 
-            // ── COUCHE B : Restrictions PL ── NOUVEAU ───────────
-            _initPLLayer();   // fetch Overpass en arrière-plan
+            // ── COUCHE B : Restrictions PL ───────────────────────
+            _initPLLayer();
 
             fitBoundsToCoords(geojsonCoords);
 
-            // Marqueurs
-            originMarker = new maplibregl.Marker({ color: '#27ae60', draggable: true })
-                .setLngLat(startCoord).addTo(map);
-            destMarker = new maplibregl.Marker({ color: '#c0392b', draggable: true })
-                .setLngLat(endCoord).addTo(map);
+            // ── Marqueurs départ / arrivée ───────────────────────
+            const makeMarker = (coord, color, label) => {
+                const el = document.createElement('div');
+                el.style.cssText = `width:22px;height:22px;background:${color};border:3px solid white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:grab;`;
+                return new maplibregl.Marker({ element: el, anchor: 'bottom', draggable: true })
+                    .setLngLat(coord)
+                    .setPopup(new maplibregl.Popup({ offset: 25 }).setText(label))
+                    .addTo(map);
+            };
 
-            originMarker.on('dragend', () => recalculateRoute());
-            destMarker.on('dragend',   () => recalculateRoute());
+            originMarker = makeMarker(startCoord, '#2ecc71', '🟢 Départ');
+            destMarker   = makeMarker(endCoord,   '#e74c3c', '🔴 Arrivée');
 
-            map.on('contextmenu', (e) => addWaypoint(e.lngLat));
+            originMarker.on('dragend', recalculateRoute);
+            destMarker.on('dragend',   recalculateRoute);
 
-            if (JSON.stringify(initPolylineCurrent) !== JSON.stringify(initPolylineOriginal)) {
-                setModifiedState(true);
-            }
+            // ── Clic-droit → waypoint ────────────────────────────
+            map.on('contextmenu', e => {
+                e.preventDefault();
+                addWaypoint(e.lngLat.lng, e.lngLat.lat);
+            });
         });
 
         // ═══════════════════════════════════════════════════════
-        //  COUCHE A — TYPES DE ROUTES  (NOUVEAU)
+        //  COUCHE A — TYPES DE ROUTES  ← MODIFIÉE
         // ═══════════════════════════════════════════════════════
-        /**
-         * On exploite les couches vectorielles déjà présentes dans le style
-         * CARTO Voyager (roads, tunnels, bridges) en ajoutant des couches
-         * de highlight par-dessus — opacité 0 par défaut, 1 quand activé.
-         *
-         * Filtres OSM highway :
-         *   motorway / motorway_link          → Autoroute  #e74c3c
-         *   trunk / trunk_link / primary      → Nationale  #f39c12
-         *   secondary / tertiary              → Dép.       #27ae60
-         */
-
         function _initRoadTypeLayer() {
 
-            // Source vecteur OSM via Stadia/OpenMapTiles (compatible CARTO Voyager)
-            // On utilise le tileset vecteur public de maptiler pour les tags highway
             map.addSource('osmRoads', {
                 type: 'vector',
                 url: 'https://tiles.stadiamaps.com/data/openmaptiles.json'
-                // ⚠️ Gratuit jusqu'à 200k tuiles/mois — suffisant pour usage métier léger
-                // Alternative sans compte : https://api.maptiler.com/tiles/v3/tiles.json?key=YOUR_KEY
             });
 
             const roadDefs = [
                 {
                     id:     'highlight-motorway',
-                    label:  'Autoroutes',
                     filter: ['in', 'class', 'motorway', 'motorway_link'],
-                    color:  '#e74c3c',   // rouge
+                    color:  '#e74c3c',   // 🔴 Rouge — Autoroutes
                     width:  5
                 },
                 {
                     id:     'highlight-trunk',
-                    label:  'Nationales / RN',
                     filter: ['in', 'class', 'trunk', 'trunk_link', 'primary'],
-                    color:  '#f39c12',   // orange
+                    color:  '#e67e22',   // 🟠 Orange — Nationales/RN
                     width:  4
                 },
                 {
                     id:     'highlight-secondary',
-                    label:  'Départementales',
                     filter: ['in', 'class', 'secondary', 'tertiary'],
-                    color:  '#27ae60',   // vert
+                    color:  '#27ae60',   // 🟢 Vert — Départementales
                     width:  3
                 }
             ];
 
             roadDefs.forEach(def => {
                 map.addLayer({
-                    id:           def.id,
-                    type:         'line',
-                    source:       'osmRoads',
-                    'source-layer': 'transportation',   // couche vecteur OpenMapTiles
-                    filter:       def.filter,
+                    id:             def.id,
+                    type:           'line',
+                    source:         'osmRoads',
+                    'source-layer': 'transportation',
+                    filter:         def.filter,
                     layout: { 'line-join': 'round', 'line-cap': 'round' },
                     paint: {
                         'line-color':   def.color,
                         'line-width':   def.width,
-                        'line-opacity': 0   // caché par défaut — toggle l'allume
+                        'line-opacity': 0    // caché par défaut
                     }
-                },
-                'routeLayer'  // inséré SOUS la route active pour ne pas la masquer
-                );
+                }, 'routeLayer');
             });
         }
 
         // ═══════════════════════════════════════════════════════
-        //  COUCHE B — RESTRICTIONS PL  (NOUVEAU)
+        //  COUCHE B — RESTRICTIONS PL
         // ═══════════════════════════════════════════════════════
-        /**
-         * Stratégie :
-         *   1. Au load de la carte : requête Overpass API pour la bbox de l'itinéraire
-         *      → récupère les ways avec maxweight < 44 OU maxheight < 4
-         *   2. Transforme en GeoJSON LineString
-         *   3. Source GeoJSON locale → couche rouge/orange overlay
-         *   4. Tooltip au survol
-         *
-         * Overpass est gratuit, pas de clé, données OSM CC-BY.
-         */
-
         async function _initPLLayer() {
             const statusEl = document.getElementById('pl-status');
             statusEl.textContent = '⏳';
 
-            // Source vide initialement
             map.addSource('plSource', {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] }
             });
 
-            // Couche segments INTERDITS (poids > 44t ou hauteur > 4m)
             map.addLayer({
                 id:     'plLayerBlock',
                 type:   'line',
@@ -390,12 +326,11 @@
                 paint: {
                     'line-color':    '#e74c3c',
                     'line-width':    6,
-                    'line-opacity':  0,          // caché par défaut
+                    'line-opacity':  0,
                     'line-dasharray': [2, 2]
                 }
             });
 
-            // Couche segments LIMITÉS (ex : 3.5t – 44t, ou 3.5m – 4m)
             map.addLayer({
                 id:     'plLayerWarn',
                 type:   'line',
@@ -410,18 +345,16 @@
                 }
             });
 
-            // Tooltip hover
             const plPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
 
             ['plLayerBlock', 'plLayerWarn'].forEach(layerId => {
-                map.on('mouseenter', layerId, (e) => {
-                    if (!layerState.pl) return;
+                map.on('mouseenter', layerId, e => {
                     map.getCanvas().style.cursor = 'pointer';
-                    const props = e.features[0].properties;
-                    let html = '<div style="font-size:13px; font-weight:bold; color:#c0392b;">🚫 Restriction PL</div>';
-                    if (props.maxweight) html += `<div>⚖️ Tonnage max : <b>${props.maxweight} t</b></div>`;
-                    if (props.maxheight) html += `<div>📏 Hauteur max : <b>${props.maxheight} m</b></div>`;
-                    if (props.name)      html += `<div style="color:#7f8c8d; font-size:12px; margin-top:4px;">${props.name}</div>`;
+                    const p = e.features[0].properties;
+                    let html = `<b>${p.severity === 'block' ? '🚫 Interdit' : '⚠️ Limité'}</b><br>`;
+                    if (p.maxweight) html += `Poids max : ${p.maxweight}t<br>`;
+                    if (p.maxheight) html += `Hauteur max : ${p.maxheight}m<br>`;
+                    if (p.name)      html += `<i>${p.name}</i>`;
                     plPopup.setLngLat(e.lngLat).setHTML(html).addTo(map);
                 });
                 map.on('mouseleave', layerId, () => {
@@ -430,92 +363,63 @@
                 });
             });
 
-            // ── Fetch Overpass ───────────────────────────────────
             try {
-                const geojson = await _fetchPLRestrictions();
-                map.getSource('plSource').setData(geojson);
-                statusEl.textContent = geojson.features.length > 0
-                    ? `(${geojson.features.length})`
-                    : '(0)';
-            } catch (err) {
-                console.warn('Overpass fetch échoué:', err);
-                statusEl.textContent = '⚠️';
+                const allCoords = [...geojsonCoords, ...originalGeojsonCoords];
+                const lngs = allCoords.map(c => c[0]);
+                const lats = allCoords.map(c => c[1]);
+                const bbox = `${Math.min(...lats)},${Math.min(...lngs)},${Math.max(...lats)},${Math.max(...lngs)}`;
+
+                const query = `
+                    [out:json][timeout:25];
+                    (
+                      way["maxweight"](${bbox});
+                      way["maxheight"](${bbox});
+                    );
+                    out geom;
+                `;
+
+                const res = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body:   'data=' + encodeURIComponent(query)
+                });
+
+                if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
+                const json = await res.json();
+
+                const features = json.elements
+                    .filter(el => el.type === 'way' && el.geometry)
+                    .map(el => {
+                        const mw = parseFloat(el.tags?.maxweight);
+                        const mh = parseFloat(el.tags?.maxheight);
+                        let severity = 'warn';
+                        if ((mw && mw < 3.5) || (mh && mh < 3.5)) severity = 'block';
+                        return {
+                            type: 'Feature',
+                            properties: {
+                                severity,
+                                maxweight: mw || null,
+                                maxheight: mh || null,
+                                name:      el.tags?.name || null
+                            },
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: el.geometry.map(pt => [pt.lon, pt.lat])
+                            }
+                        };
+                    });
+
+                map.getSource('plSource').setData({ type: 'FeatureCollection', features });
+                statusEl.textContent = features.length > 0 ? `(${features.length})` : '(0)';
+
+            } catch(e) {
+                console.warn('Overpass échoué:', e);
+                statusEl.textContent = '❌';
             }
         }
 
-        /**
-         * Calcule la bbox de l'itinéraire + marge, puis interroge Overpass
-         * pour récupérer les ways avec restrictions de poids ou hauteur.
-         */
-        async function _fetchPLRestrictions() {
-
-            // Bbox de l'itinéraire avec marge de 0.3°
-            const lats = originalGeojsonCoords.map(c => c[1]);
-            const lngs = originalGeojsonCoords.map(c => c[0]);
-            const margin = 0.3;
-            const bbox = [
-                Math.min(...lats) - margin,
-                Math.min(...lngs) - margin,
-                Math.max(...lats) + margin,
-                Math.max(...lngs) + margin
-            ].join(',');
-
-            // Requête Overpass QL :
-            //   ways avec maxweight OU maxheight présents dans la bbox
-            const query = `
-                [out:json][timeout:25];
-                (
-                  way["maxweight"](${bbox});
-                  way["maxheight"](${bbox});
-                );
-                out geom;
-            `;
-
-            const res = await fetch('https://overpass-api.de/api/interpreter', {
-                method: 'POST',
-                body:   'data=' + encodeURIComponent(query)
-            });
-
-            if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-            const json = await res.json();
-
-            // Convertit les ways Overpass → GeoJSON features
-            const features = json.elements
-                .filter(el => el.type === 'way' && el.geometry)
-                .map(el => {
-                    const mw = parseFloat(el.tags?.maxweight);
-                    const mh = parseFloat(el.tags?.maxheight);
-
-                    // Classifie : block si interdit pour 44t/4m, warn si limite partielle
-                    let severity = 'warn';
-                    if ((mw && mw < 3.5) || (mh && mh < 3.5)) severity = 'block';
-
-                    return {
-                        type: 'Feature',
-                        properties: {
-                            severity,
-                            maxweight: mw || null,
-                            maxheight: mh || null,
-                            name:      el.tags?.name || null
-                        },
-                        geometry: {
-                            type: 'LineString',
-                            coordinates: el.geometry.map(pt => [pt.lon, pt.lat])
-                        }
-                    };
-                });
-
-            return { type: 'FeatureCollection', features };
-        }
-
         // ═══════════════════════════════════════════════════════
-        //  TOGGLE LOGIQUE — NOUVEAU
+        //  TOGGLE LOGIQUE
         // ═══════════════════════════════════════════════════════
-
-        /**
-         * Active / désactive une couche et met à jour le bouton.
-         * @param {'road'|'pl'} key
-         */
         function toggleLayer(key) {
             layerState[key] = !layerState[key];
             const on = layerState[key];
@@ -526,30 +430,22 @@
                     map.setPaintProperty(id, 'line-opacity', opacity);
                 });
                 _setToggleBtn('toggle-road', on, 'active-road');
-
             } else if (key === 'pl') {
-                const opBlock = on ? 0.85 : 0;
-                const opWarn  = on ? 0.75 : 0;
-                map.setPaintProperty('plLayerBlock', 'line-opacity', opBlock);
-                map.setPaintProperty('plLayerWarn',  'line-opacity', opWarn);
+                map.setPaintProperty('plLayerBlock', 'line-opacity', on ? 0.85 : 0);
+                map.setPaintProperty('plLayerWarn',  'line-opacity', on ? 0.75 : 0);
                 _setToggleBtn('toggle-pl', on, 'active-pl');
             }
         }
 
-        /** Met à jour l'apparence visuelle du bouton toggle */
         function _setToggleBtn(btnId, on, activeClass) {
             const btn = document.getElementById(btnId);
-            if (on) {
-                btn.classList.add(activeClass);
-            } else {
-                btn.classList.remove(activeClass);
-            }
+            if (on) btn.classList.add(activeClass);
+            else    btn.classList.remove(activeClass);
         }
 
         // ═══════════════════════════════════════════════════════
-        //  HELPERS (inchangés)
+        //  HELPERS
         // ═══════════════════════════════════════════════════════
-
         function buildGeoJSON(coords) {
             return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } };
         }
@@ -583,71 +479,98 @@
         }
 
         // ═══════════════════════════════════════════════════════
-        //  WAYPOINTS (inchangés)
+        //  WAYPOINTS
         // ═══════════════════════════════════════════════════════
-
-        function addWaypoint(lngLat) {
-            const id = Date.now();
-            const wpMarker = new maplibregl.Marker({ color: '#3498db', draggable: true }).setLngLat(lngLat).addTo(map);
-            const wpObj = { id, marker: wpMarker };
-            waypoints.push(wpObj);
-            wpMarker.on('dragend', () => { updateWaypointsList(); recalculateRoute(); });
-            wpMarker.getElement().addEventListener('dblclick', () => removeWaypoint(id));
+        async function addWaypoint(lng, lat) {
+            const idx = waypoints.length;
+            const el  = document.createElement('div');
+            el.style.cssText = `width:18px;height:18px;background:#8e44ad;border:3px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3);cursor:grab;`;
+            const marker = new maplibregl.Marker({ element: el, draggable: true })
+                .setLngLat([lng, lat])
+                .addTo(map);
+            waypoints.push({ marker, lng, lat });
+            marker.on('dragend', async () => {
+                const pos = marker.getLngLat();
+                waypoints[idx].lng = pos.lng;
+                waypoints[idx].lat = pos.lat;
+                await recalculateRoute();
+            });
             updateWaypointsList();
-            recalculateRoute();
+            await recalculateRoute();
         }
 
-        function removeWaypoint(id) {
-            const index = waypoints.findIndex(w => w.id === id);
-            if (index === -1) return;
-            waypoints[index].marker.remove();
-            waypoints.splice(index, 1);
+        function removeWaypoint(idx) {
+            waypoints[idx].marker.remove();
+            waypoints.splice(idx, 1);
             updateWaypointsList();
-            if (waypoints.length === 0 && !hasMarkersMovedFromOriginal()) restoreOriginalDisplay();
-            else recalculateRoute();
+            recalculateRoute();
         }
 
         function clearWaypoints() {
             waypoints.forEach(wp => wp.marker.remove());
             waypoints = [];
             updateWaypointsList();
-            if (!hasMarkersMovedFromOriginal()) restoreOriginalDisplay();
-            else recalculateRoute();
-        }
-
-        function hasMarkersMovedFromOriginal() {
-            if (!originMarker || !destMarker) return false;
-            const o = originMarker.getLngLat(), d = destMarker.getLngLat(), t = 0.001;
-            return Math.abs(o.lat - startCoord[1]) > t || Math.abs(o.lng - startCoord[0]) > t ||
-                   Math.abs(d.lat - endCoord[1])   > t || Math.abs(d.lng - endCoord[0])   > t;
+            recalculateRoute();
         }
 
         function updateWaypointsList() {
-            const listDiv = document.getElementById('wp-list');
+            const list = document.getElementById('wp-list');
             if (waypoints.length === 0) {
-                listDiv.innerHTML = '<p class="wp-empty">Aucune étape ajoutée. Clic-droit sur la carte pour en ajouter.</p>';
+                list.innerHTML = '<p class="wp-empty">Aucune étape ajoutée.</p>';
                 return;
             }
-            listDiv.innerHTML = '';
-            waypoints.forEach((wp, index) => {
-                const lngLat = wp.marker.getLngLat();
-                const item   = document.createElement('div');
-                item.className = 'wp-item';
-                item.innerHTML = `
-                    <div><b>Étape ${index + 1}</b><br>
-                    <span style="color:#7f8c8d; font-size:12px;">${lngLat.lat.toFixed(4)}, ${lngLat.lng.toFixed(4)}</span></div>
-                    <div class="wp-remove" onclick="removeWaypoint(${wp.id})" title="Supprimer">❌</div>`;
-                listDiv.appendChild(item);
-            });
+            list.innerHTML = waypoints.map((wp, i) => `
+                <div class="wp-item">
+                    <span>📍 Étape ${i+1}<br><small>${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}</small></span>
+                    <span class="wp-remove" onclick="removeWaypoint(${i})">✕</span>
+                </div>
+            `).join('');
         }
 
         // ═══════════════════════════════════════════════════════
-        //  RESET & RECALCUL (inchangés)
+        //  RECALCUL ITINÉRAIRE
         // ═══════════════════════════════════════════════════════
+        async function recalculateRoute() {
+            setLoading(true);
+            try {
+                const origin = originMarker.getLngLat();
+                const dest   = destMarker.getLngLat();
+                const wps    = waypoints.map(wp => ({ lat: wp.lat, lng: wp.lng }));
 
+                const res = await fetch(`${serverUrl}/api/recalculate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        route_id:   routeId,
+                        origin:     { lat: origin.lat, lng: origin.lng },
+                        dest:       { lat: dest.lat,   lng: dest.lng   },
+                        waypoints:  wps
+                    })
+                });
+
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+
+                const newCoords = decode(data.polyline);
+                map.getSource('routeSource').setData(buildGeoJSON(newCoords));
+
+                document.getElementById('dist').textContent = data.distance_km + ' km';
+                document.getElementById('dur').textContent  = data.duration_h  + ' h';
+                document.getElementById('toll').textContent = data.prix_peage  + ' €';
+
+                setModifiedState(true);
+            } catch(e) {
+                console.error('Recalcul échoué:', e);
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
+        //  RESET
+        // ═══════════════════════════════════════════════════════
         function restoreOriginalDisplay() {
-            geojsonCoords = [...originalGeojsonCoords];
-            map.getSource('routeSource').setData(buildGeoJSON(geojsonCoords));
+            map.getSource('routeSource').setData(buildGeoJSON(originalGeojsonCoords));
             originMarker.setLngLat(startCoord);
             destMarker.setLngLat(endCoord);
             setModifiedState(false);
@@ -663,38 +586,9 @@
             updateWaypointsList();
         }
 
-        async function recalculateRoute() {
-            const allPoints = [
-                originMarker.getLngLat(),
-                ...waypoints.map(w => w.marker.getLngLat()),
-                destMarker.getLngLat()
-            ];
-            setLoading(true);
-            try {
-                const response = await fetch(`${serverUrl}/api/recalculate_drag`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ route_id: routeId, waypoints: allPoints.map(p => ({ lat: p.lat, lng: p.lng })) })
-                });
-                if (!response.ok) { console.error('Erreur serveur:', response.status); return; }
-                const data = await response.json();
-                document.getElementById('dist').innerText = data.distance_km + ' km';
-                document.getElementById('dur').innerText  = data.duration_h  + ' h';
-                document.getElementById('toll').innerText = data.prix_peage  + ' €';
-                geojsonCoords = data.polyline.map(c => [c[1], c[0]]);
-                map.getSource('routeSource').setData(buildGeoJSON(geojsonCoords));
-                setModifiedState(true);
-            } catch (err) {
-                console.error('Erreur recalcul:', err);
-            } finally {
-                setLoading(false);
-            }
-        }
-
         // ═══════════════════════════════════════════════════════
-        //  RECHERCHE ADRESSE (inchangée)
+        //  RECHERCHE ADRESSE
         // ═══════════════════════════════════════════════════════
-
         let searchMarker = null, searchPopup = null;
 
         async function searchAddress() {
