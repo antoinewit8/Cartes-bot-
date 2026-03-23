@@ -68,6 +68,88 @@
             padding: 15px 25px; border-radius: 8px; z-index: 100;
             font-size: 15px; font-weight: bold;
         }
+
+        /* ── Barre de recherche ── */
+        #search-box {
+            margin-top: 20px;
+            border-top: 1px solid #e1e8ed;
+            padding-top: 15px;
+        }
+        #search-box h4 {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        #search-input {
+            width: 100%;
+            padding: 9px 10px;
+            border: 1px solid #dce1e7;
+            border-radius: 6px;
+            font-size: 14px;
+            box-sizing: border-box;
+            outline: none;
+            transition: border 0.2s;
+        }
+        #search-input:focus { border-color: #3498db; }
+
+        #search-btn {
+            margin-top: 8px;
+            padding: 9px;
+            width: 100%;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        #search-btn:hover { background: #2980b9; }
+        #search-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+
+        #search-error {
+            font-size: 12px;
+            color: #e74c3c;
+            margin-top: 6px;
+            display: none;
+        }
+
+        /* Popup MapLibre custom */
+        .search-popup .maplibregl-popup-content {
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            min-width: 180px;
+        }
+        .popup-label {
+            font-size: 13px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            word-break: break-word;
+        }
+        .popup-btn {
+            display: block;
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 6px;
+            border: none;
+            border-radius: 5px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .popup-btn-origin { background: #2ecc71; color: white; }
+        .popup-btn-origin:hover { background: #27ae60; }
+        .popup-btn-dest   { background: #e74c3c; color: white; }
+        .popup-btn-dest:hover   { background: #c0392b; }
+        .popup-btn-cancel { background: #ecf0f1; color: #7f8c8d; }
+        .popup-btn-cancel:hover { background: #dce1e7; }
     </style>
 </head>
 <body>
@@ -75,7 +157,7 @@
     <div id="info-box">
         <h3>📍 {{ route.origin }} <br>🏁 {{ route.dest }}</h3>
 
-        <!-- ✅ Badge état -->
+        <!-- Badge état -->
         <div id="route-state" class="state-original">✅ Itinéraire original</div>
 
         <div class="stat-row">Distance <span class="badge badge-blue" id="dist">{{ route.distance_km }} km</span></div>
@@ -88,16 +170,29 @@
                 <p class="wp-empty">Aucune étape ajoutée.</p>
             </div>
             <button class="btn btn-danger" onclick="clearWaypoints()">🗑️ Tout effacer</button>
-            <!-- ✅ Bouton reset vers itinéraire original -->
             <button class="btn btn-reset" id="btn-reset" onclick="resetToOriginal()" disabled>
                 🔄 Revenir à l'itinéraire original
             </button>
+        </div>
+
+        <!-- ── Recherche d'adresse ── -->
+        <div id="search-box">
+            <h4>🔍 Rechercher une adresse</h4>
+            <input
+                id="search-input"
+                type="text"
+                placeholder="Ex : 14 rue de la Paix, Paris"
+                autocomplete="off"
+            />
+            <button id="search-btn" onclick="searchAddress()">Rechercher</button>
+            <div id="search-error">❌ Adresse introuvable</div>
         </div>
 
         <div class="instructions">
             <b>Astuces :</b><br>
             🖱️ <b>Déplacer</b> le départ/arrivée à la souris.<br>
             ➕ <b>Clic-droit</b> sur la carte pour ajouter une étape.<br>
+            🔍 <b>Rechercher</b> une adresse pour la définir comme départ ou arrivée.<br>
             🔄 <b>Reset</b> pour revenir au tracé d'origine.<br>
         </div>
     </div>
@@ -111,25 +206,17 @@
 
         // ═══════════════════════════════════════════════════════
         //  DONNÉES INITIALES
-        //  ✅ On utilise polyline_current pour l'affichage actif
-        //  ✅ On garde polyline_original comme référence immuable
         // ═══════════════════════════════════════════════════════
 
-        // polyline_current = ce qui s'affiche (peut être modifié)
         const initPolylineCurrent  = {{ (route.polyline_current  or route.polyline) | tojson }};
-        // polyline_original = référence immuable côté JS (jamais modifié)
         const initPolylineOriginal = {{ (route.polyline_original or route.polyline) | tojson }};
 
-        // Conversion [lat, lng] → [lng, lat] pour MapLibre
-        let geojsonCoords         = initPolylineCurrent.map(c  => [c[1], c[0]]);
+        let geojsonCoords           = initPolylineCurrent.map(c  => [c[1], c[0]]);
         const originalGeojsonCoords = initPolylineOriginal.map(c => [c[1], c[0]]);
 
-        // ✅ Départ/arrivée toujours calés sur la route ORIGINALE
-        // (évite que le drag précédent décale les marqueurs)
         const startCoord = originalGeojsonCoords[0];
         const endCoord   = originalGeojsonCoords[originalGeojsonCoords.length - 1];
 
-        // Flag : est-ce que la route a été modifiée ?
         let isModified = false;
 
         // ═══════════════════════════════════════════════════════
@@ -150,7 +237,7 @@
 
         map.on('load', () => {
 
-            // ── Tracé ORIGINAL (grisé, en dessous) ──────────────
+            // Tracé ORIGINAL (grisé)
             map.addSource('originalRouteSource', {
                 type: 'geojson',
                 data: buildGeoJSON(originalGeojsonCoords)
@@ -160,14 +247,10 @@
                 type: 'line',
                 source: 'originalRouteSource',
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color':   '#95a5a6',
-                    'line-width':   5,
-                    'line-opacity': 0.0   // ✅ Caché par défaut, visible seulement si modifié
-                }
+                paint: { 'line-color': '#95a5a6', 'line-width': 5, 'line-opacity': 0.0 }
             });
 
-            // ── Tracé ACTIF (bleu, au dessus) ───────────────────
+            // Tracé ACTIF (bleu)
             map.addSource('routeSource', {
                 type: 'geojson',
                 data: buildGeoJSON(geojsonCoords)
@@ -180,10 +263,9 @@
                 paint: { 'line-color': '#007cbf', 'line-width': 6, 'line-opacity': 0.85 }
             });
 
-            // ── Fit bounds sur le tracé actif ───────────────────
             fitBoundsToCoords(geojsonCoords);
 
-            // ── Marqueurs départ / arrivée ───────────────────────
+            // Marqueurs départ / arrivée
             originMarker = new maplibregl.Marker({ color: '#27ae60', draggable: true })
                 .setLngLat(startCoord).addTo(map);
             destMarker = new maplibregl.Marker({ color: '#c0392b', draggable: true })
@@ -192,14 +274,11 @@
             originMarker.on('dragend', () => recalculateRoute());
             destMarker.on('dragend',   () => recalculateRoute());
 
-            // ── Clic droit = ajout waypoint ──────────────────────
+            // Clic droit = ajout waypoint
             map.on('contextmenu', (e) => addWaypoint(e.lngLat));
 
-            // ── Détecte si la route est déjà modifiée au chargement ──
-            // (cas rechargement page après un drag précédent)
-            const currentStr  = JSON.stringify(initPolylineCurrent);
-            const originalStr = JSON.stringify(initPolylineOriginal);
-            if (currentStr !== originalStr) {
+            // Détecte si déjà modifié au chargement
+            if (JSON.stringify(initPolylineCurrent) !== JSON.stringify(initPolylineOriginal)) {
                 setModifiedState(true);
             }
         });
@@ -227,23 +306,20 @@
             map.setPaintProperty('routeLayer', 'line-opacity', on ? 0.3 : 0.85);
         }
 
-        // ✅ Met à jour le badge et le bouton reset selon l'état
         function setModifiedState(modified) {
             isModified = modified;
-            const badge  = document.getElementById('route-state');
+            const badge    = document.getElementById('route-state');
             const btnReset = document.getElementById('btn-reset');
 
             if (modified) {
-                badge.className = 'state-modified';
+                badge.className   = 'state-modified';
                 badge.textContent = '✏️ Itinéraire modifié';
                 btnReset.disabled = false;
-                // Afficher le tracé original en grisé pour comparaison
                 map.setPaintProperty('originalRouteLayer', 'line-opacity', 0.45);
             } else {
-                badge.className = 'state-original';
+                badge.className   = 'state-original';
                 badge.textContent = '✅ Itinéraire original';
                 btnReset.disabled = true;
-                // Cacher le tracé original (inutile si on est déjà dessus)
                 map.setPaintProperty('originalRouteLayer', 'line-opacity', 0.0);
             }
         }
@@ -260,11 +336,7 @@
             const wpObj = { id, marker: wpMarker };
             waypoints.push(wpObj);
 
-            wpMarker.on('dragend', () => {
-                updateWaypointsList();
-                recalculateRoute();
-            });
-
+            wpMarker.on('dragend', () => { updateWaypointsList(); recalculateRoute(); });
             wpMarker.getElement().addEventListener('dblclick', () => removeWaypoint(id));
 
             updateWaypointsList();
@@ -274,13 +346,9 @@
         function removeWaypoint(id) {
             const index = waypoints.findIndex(w => w.id === id);
             if (index === -1) return;
-
             waypoints[index].marker.remove();
             waypoints.splice(index, 1);
             updateWaypointsList();
-
-            // ✅ FIX BUG PRINCIPAL :
-            // Si plus aucun waypoint ET départ/arrivée non bougés → restaurer l'original
             if (waypoints.length === 0 && !hasMarkersMovedFromOriginal()) {
                 restoreOriginalDisplay();
             } else {
@@ -292,8 +360,6 @@
             waypoints.forEach(wp => wp.marker.remove());
             waypoints = [];
             updateWaypointsList();
-
-            // ✅ Même logique : si départ/arrivée non bougés → original
             if (!hasMarkersMovedFromOriginal()) {
                 restoreOriginalDisplay();
             } else {
@@ -301,28 +367,25 @@
             }
         }
 
-        // Vérifie si les marqueurs ont été déplacés depuis l'original
         function hasMarkersMovedFromOriginal() {
             if (!originMarker || !destMarker) return false;
-            const oLng = originMarker.getLngLat();
-            const dLng = destMarker.getLngLat();
-            const threshold = 0.001; // ~100m
+            const o = originMarker.getLngLat();
+            const d = destMarker.getLngLat();
+            const t = 0.001;
             return (
-                Math.abs(oLng.lat - startCoord[1]) > threshold ||
-                Math.abs(oLng.lng - startCoord[0]) > threshold ||
-                Math.abs(dLng.lat - endCoord[1])   > threshold ||
-                Math.abs(dLng.lng - endCoord[0])   > threshold
+                Math.abs(o.lat - startCoord[1]) > t ||
+                Math.abs(o.lng - startCoord[0]) > t ||
+                Math.abs(d.lat - endCoord[1])   > t ||
+                Math.abs(d.lng - endCoord[0])   > t
             );
         }
 
         function updateWaypointsList() {
             const listDiv = document.getElementById('wp-list');
-
             if (waypoints.length === 0) {
                 listDiv.innerHTML = '<p class="wp-empty">Aucune étape ajoutée. Clic-droit sur la carte pour en ajouter.</p>';
                 return;
             }
-
             listDiv.innerHTML = '';
             waypoints.forEach((wp, index) => {
                 const lngLat = wp.marker.getLngLat();
@@ -345,31 +408,21 @@
         //  RESTAURATION ITINÉRAIRE ORIGINAL
         // ═══════════════════════════════════════════════════════
 
-        // ✅ Restauration locale IMMÉDIATE (sans appel PTV, sans attente)
         function restoreOriginalDisplay() {
             geojsonCoords = [...originalGeojsonCoords];
-
             map.getSource('routeSource').setData(buildGeoJSON(geojsonCoords));
-
-            // Remettre les marqueurs à leur position originale
             originMarker.setLngLat(startCoord);
             destMarker.setLngLat(endCoord);
-
             setModifiedState(false);
 
-            // ✅ Reset aussi dans Firebase (async, non bloquant)
             fetch(`${serverUrl}/api/reset_route/${routeId}`, { method: 'POST' })
                 .then(r => r.json())
                 .then(d => console.log('Firebase reset:', d))
                 .catch(e => console.warn('Reset Firebase échoué (non bloquant):', e));
         }
 
-        // ✅ Bouton "Revenir à l'itinéraire original"
         async function resetToOriginal() {
-            // 1. Reset visuel immédiat
             restoreOriginalDisplay();
-
-            // 2. Supprimer tous les waypoints
             waypoints.forEach(wp => wp.marker.remove());
             waypoints = [];
             updateWaypointsList();
@@ -398,10 +451,7 @@
                     })
                 });
 
-                if (!response.ok) {
-                    console.error('Erreur serveur:', response.status);
-                    return;
-                }
+                if (!response.ok) { console.error('Erreur serveur:', response.status); return; }
 
                 const data = await response.json();
 
@@ -411,8 +461,6 @@
 
                 geojsonCoords = data.polyline.map(c => [c[1], c[0]]);
                 map.getSource('routeSource').setData(buildGeoJSON(geojsonCoords));
-
-                // ✅ Marquer comme modifié après chaque recalcul PTV
                 setModifiedState(true);
 
             } catch (err) {
@@ -421,6 +469,119 @@
                 setLoading(false);
             }
         }
+
+        // ═══════════════════════════════════════════════════════
+        //  RECHERCHE D'ADRESSE + PIN VIOLET
+        // ═══════════════════════════════════════════════════════
+
+        let searchMarker = null;
+        let searchPopup  = null;
+
+        async function searchAddress() {
+            const input = document.getElementById('search-input');
+            const btn   = document.getElementById('search-btn');
+            const errEl = document.getElementById('search-error');
+            const q     = input.value.trim();
+
+            if (!q || q.length < 3) return;
+
+            errEl.style.display = 'none';
+            btn.disabled        = true;
+            btn.innerText       = '⏳ Recherche...';
+
+            try {
+                const res = await fetch(`${serverUrl}/api/geocode?q=${encodeURIComponent(q)}`);
+
+                if (!res.ok) {
+                    errEl.style.display = 'block';
+                    return;
+                }
+
+                const data = await res.json();  // { lat, lng, label }
+                _placeSearchPin(data.lat, data.lng, data.label);
+
+            } catch (e) {
+                console.error('Erreur geocode:', e);
+                errEl.style.display = 'block';
+            } finally {
+                btn.disabled  = false;
+                btn.innerText = 'Rechercher';
+            }
+        }
+
+        // Raccourci clavier Enter
+        document.getElementById('search-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter') searchAddress();
+        });
+
+        function _placeSearchPin(lat, lng, label) {
+
+            // Supprimer l'ancien pin si présent
+            if (searchMarker) { searchMarker.remove(); searchMarker = null; }
+            if (searchPopup)  { searchPopup.remove();  searchPopup  = null; }
+
+            // Pin violet custom
+            const el = document.createElement('div');
+            el.style.cssText = `
+                width: 22px; height: 22px;
+                background: #8e44ad;
+                border: 3px solid white;
+                border-radius: 50% 50% 50% 0;
+                transform: rotate(-45deg);
+                box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+                cursor: pointer;
+            `;
+
+            searchMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+                .setLngLat([lng, lat])
+                .addTo(map);
+
+            map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 13), duration: 800 });
+
+            // Popup avec choix départ / arrivée
+            const popupHTML = `
+                <div class="popup-label">📍 ${label}</div>
+                <button class="popup-btn popup-btn-origin"
+                    onclick="_applySearchResult(${lat}, ${lng}, 'origin')">
+                    🟢 Définir comme départ
+                </button>
+                <button class="popup-btn popup-btn-dest"
+                    onclick="_applySearchResult(${lat}, ${lng}, 'dest')">
+                    🔴 Définir comme arrivée
+                </button>
+                <button class="popup-btn popup-btn-cancel"
+                    onclick="_cancelSearchPin()">
+                    Annuler
+                </button>
+            `;
+
+            searchPopup = new maplibregl.Popup({
+                className:   'search-popup',
+                closeButton: false,
+                maxWidth:    '220px'
+            })
+                .setLngLat([lng, lat])
+                .setHTML(popupHTML)
+                .addTo(map);
+        }
+
+        async function _applySearchResult(lat, lng, role) {
+            _cancelSearchPin();
+
+            if (role === 'origin') {
+                originMarker.setLngLat([lng, lat]);
+            } else {
+                destMarker.setLngLat([lng, lat]);
+            }
+
+            await recalculateRoute();
+        }
+
+        function _cancelSearchPin() {
+            if (searchMarker) { searchMarker.remove(); searchMarker = null; }
+            if (searchPopup)  { searchPopup.remove();  searchPopup  = null; }
+        }
+
     </script>
 </body>
 </html>
