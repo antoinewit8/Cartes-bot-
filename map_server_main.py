@@ -211,7 +211,7 @@ async def _geocode(address: str) -> Optional[list]:
         resp = await client.get(
             "https://api.myptv.com/geocoding/v1/locations/by-text",
             headers={"apiKey": PTV_API_KEY},
-            params={"searchText": address, "countryFilter": "BEL,FRA,LUX,DEU,NLD"},
+            params={"searchText": address, "countryFilter": "BE,FR,LU,DE,NL"},
             timeout=15,
         )
     print(f"GEOCODE [{address}] → {resp.status_code}: {resp.text[:500]}")
