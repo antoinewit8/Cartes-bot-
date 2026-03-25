@@ -207,17 +207,18 @@ def _decode_polyline(encoded: str) -> list:
     return coords
 
 async def _geocode(address: str) -> Optional[list]:
-    """Géocode une adresse via PTV → [lat, lng]."""
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.myptv.com/geocoding/v1/locations/by-text",
             headers={"apiKey": PTV_API_KEY},
-            params={"searchText": address, "countryFilter": "FRA,BEL,LUX,DEU,ESP"},
+            params={"searchText": address, "countryFilter": "BEL,FRA,LUX,DEU,NLD"},
             timeout=15,
         )
+    print(f"GEOCODE [{address}] → {resp.status_code}: {resp.text[:500]}")
     if resp.status_code != 200:
         return None
     results = resp.json().get("locations", [])
+    print(f"GEOCODE résultats : {len(results)} trouvés")
     if not results:
         return None
     loc = results[0]["referencePosition"]
