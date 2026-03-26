@@ -16,6 +16,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI(title="Arcelor Route Map Server")
+# --- AJOUTEZ CE BLOC ICI ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Autorise tous les sites web (dont votre Streamlit) à appeler cette API
+    allow_credentials=True,
+    allow_methods=["*"],  # Autorise toutes les méthodes (GET, POST, etc.)
+    allow_headers=["*"],
+)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
