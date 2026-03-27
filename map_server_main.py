@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn, uuid, json, os, httpx
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
+
 
 load_dotenv()
 
