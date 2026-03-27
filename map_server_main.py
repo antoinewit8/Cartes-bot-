@@ -435,26 +435,15 @@ async def reset_route(route_id: str):
         raise
     except Exception as e:
         raise HTTPException(500, f"Erreur reset: {e}")
+        
 @app.get("/api/geocode")
 async def geocode(q: str):
     if not q or len(q) < 3:
         raise HTTPException(400, "Requête trop courte")
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={"q": q, "format": "json", "limit": 5},
-            headers={"User-Agent": "ArcelorMapServer/1.0"},
-            timeout=10,
-        )
-    if r.status_code != 200:
-        raise HTTPException(502, "Nominatim indisponible")
-    results = r.json()
-    if not results:
+    coords = await _geocode(q)
+    if not coords:
         raise HTTPException(404, "Adresse introuvable")
-    return [
-        {"display_name": item.get("display_name", ""), "lat": float(item["lat"]), "lon": float(item["lon"])}
-        for item in results
-    ]
+    return {"lat": coords[0], "lng": coords[1], "label": q}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
