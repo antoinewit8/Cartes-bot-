@@ -410,31 +410,48 @@ async def recalculate_drag(data: RecalcDragRequest):
 # ── Reset route → retour à l'itinéraire original ─────────────────────────────
 @app.post("/api/reset_route/{route_id}")
 async def reset_route(route_id: str):
-    """Remet polyline_current = polyline_original dans Firebase."""
     if not FIREBASE_URL:
         raise HTTPException(400, "Firebase non configuré")
 
     try:
         r = httpx.get(
-            f"{FIREBASE_URL}/routes/{route_id}/polyline_original.json",
+            f"{FIREBASE_URL}/routes/{route_id}.json",
             timeout=10
         )
         if r.status_code != 200 or not r.json():
+            raise HTTPException(404, "Route introuvable")
+
+        route = r.json()
+        original_poly = route.get("polyline_original")
+        if not original_poly:
             raise HTTPException(404, "polyline_original introuvable")
 
-        original = r.json()
+        # ✅ Restaurer polyline ET stats
+        reset_data = {
+            "polyline_current": original_poly,
+            "distance_km":      route.get("distance_km_original", route.get("distance_km")),
+            "duration_h":       route.get("duration_h_original",  route.get("duration_h")),
+            "prix_peage":       route.get("prix_peage_original",  route.get("prix_peage")),
+        }
 
         httpx.patch(
             f"{FIREBASE_URL}/routes/{route_id}.json",
-            json={"polyline_current": original},
+            json=reset_data,
             timeout=10
         )
-        return {"status": "reset", "points": len(original)}
+        return {
+            "status": "reset",
+            "points": len(original_poly),
+            "distance_km": reset_data["distance_km"],
+            "duration_h":  reset_data["duration_h"],
+            "prix_peage":  reset_data["prix_peage"],
+        }
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Erreur reset: {e}")
+    
         
 @app.get("/api/geocode")
 async def geocode(q: str):
