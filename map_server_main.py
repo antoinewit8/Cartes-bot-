@@ -380,10 +380,10 @@ async def recalculate_drag(data: RecalcDragRequest):
     prix_peage = _extract_toll(ptv)
     coords     = _extract_polyline(ptv)
 
-    print(f"RÉSULTAT PTV : dist={distance_m}m, dur={duration_s}s, peage={prix_peage}, coords={len(coords)} points")
+        print(f"RÉSULTAT PTV : dist={distance_m}m, dur={duration_s}s, peage={prix_peage}, coords={len(coords)} points")
 
-    # ✅ On écrase seulement polyline_current, jamais polyline_original
-        if data.route_id and FIREBASE_URL:
+    # ✅ Sauvegarde originaux + mise à jour polyline_current
+    if data.route_id and FIREBASE_URL:
         try:
             existing = httpx.get(
                 f"{FIREBASE_URL}/routes/{data.route_id}.json",
@@ -417,13 +417,8 @@ async def recalculate_drag(data: RecalcDragRequest):
         except Exception as e:
             print(f"Erreur maj Firebase: {e}")
 
-
     return {
-        "distance_km": round(distance_m / 1000, 1),
-        "duration_h":  round(duration_s / 3600, 2),
-        "prix_peage":  round(prix_peage, 2),
-        "polyline":    coords,
-    }
+
 
 
 # ── Reset route → retour à l'itinéraire original ─────────────────────────────
