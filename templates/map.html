@@ -97,17 +97,12 @@
         }
 
         /* État ON */
-        .toggle-btn.active-road {
-            background: #eaf4fb;
-            color: #1a6ea8;
-            border-color: #3498db;
-        }
         .toggle-btn.active-pl {
             background: #fdf2ec;
             color: #c0392b;
             border-color: #e74c3c;
         }
-
+        
         /* Petite pastille colorée dans le bouton */
         .toggle-dot {
             width: 10px;
@@ -116,14 +111,14 @@
             display: inline-block;
             flex-shrink: 0;
         }
-        .dot-road { background: #3498db; }
-        .dot-pl   { background: #e74c3c; }
-
+        .dot-pl { background: #e74c3c; }
+        
         /* Badge "chargement" sur le bouton PL */
         .toggle-btn .badge-loading {
             font-size: 11px;
             opacity: 0.7;
         }
+
     </style>
 </head>
 <body>
@@ -165,18 +160,6 @@
 
     <!-- ═══ PANNEAU TOGGLE COUCHES — NOUVEAU ═══ -->
     <div id="layer-panel">
-
-        <!-- Toggle A : Types de routes -->
-        <button
-            class="toggle-btn"
-            id="toggle-road"
-            onclick="toggleLayer('road')"
-            title="Colorier autoroutes / nationales / départementales"
-        >
-            <span class="toggle-dot dot-road"></span>
-            🛣️ Types de routes
-        </button>
-
         <!-- Toggle B : Restrictions PL -->
         <button
             class="toggle-btn"
@@ -218,8 +201,7 @@
         // ═══════════════════════════════════════════════════════
 
         const layerState = {
-            road: false,   // couche A désactivée par défaut
-            pl:   false    // couche B désactivée par défaut
+            pl: false
         };
 
         // ═══════════════════════════════════════════════════════
@@ -263,10 +245,7 @@
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: { 'line-color': '#007cbf', 'line-width': 6, 'line-opacity': 0.85 }
             });
-
-            // ── COUCHE A : Types de routes ── NOUVEAU ───────────
-            _initRoadTypeLayer();
-
+            
             // ── COUCHE B : Restrictions PL ── NOUVEAU ───────────
             _initPLLayer();   // fetch Overpass en arrière-plan
 
@@ -301,60 +280,6 @@
          *   trunk / trunk_link / primary      → Nationale  #f39c12
          *   secondary / tertiary              → Dép.       #27ae60
          */
-
-        function _initRoadTypeLayer() {
-
-            // Source vecteur OSM via Stadia/OpenMapTiles (compatible CARTO Voyager)
-            // On utilise le tileset vecteur public de maptiler pour les tags highway
-            map.addSource('osmRoads', {
-                type: 'vector',
-                url: 'https://tiles.stadiamaps.com/data/openmaptiles.json'
-                // ⚠️ Gratuit jusqu'à 200k tuiles/mois — suffisant pour usage métier léger
-                // Alternative sans compte : https://api.maptiler.com/tiles/v3/tiles.json?key=YOUR_KEY
-            });
-
-            const roadDefs = [
-                {
-                    id:     'highlight-motorway',
-                    label:  'Autoroutes',
-                    filter: ['in', 'class', 'motorway', 'motorway_link'],
-                    color:  '#e74c3c',   // rouge
-                    width:  5
-                },
-                {
-                    id:     'highlight-trunk',
-                    label:  'Nationales / RN',
-                    filter: ['in', 'class', 'trunk', 'trunk_link', 'primary'],
-                    color:  '#f39c12',   // orange
-                    width:  4
-                },
-                {
-                    id:     'highlight-secondary',
-                    label:  'Départementales',
-                    filter: ['in', 'class', 'secondary', 'tertiary'],
-                    color:  '#27ae60',   // vert
-                    width:  3
-                }
-            ];
-
-            roadDefs.forEach(def => {
-                map.addLayer({
-                    id:           def.id,
-                    type:         'line',
-                    source:       'osmRoads',
-                    'source-layer': 'transportation',   // couche vecteur OpenMapTiles
-                    filter:       def.filter,
-                    layout: { 'line-join': 'round', 'line-cap': 'round' },
-                    paint: {
-                        'line-color':   def.color,
-                        'line-width':   def.width,
-                        'line-opacity': 0   // caché par défaut — toggle l'allume
-                    }
-                },
-                'routeLayer'  // inséré SOUS la route active pour ne pas la masquer
-                );
-            });
-        }
 
         // ═══════════════════════════════════════════════════════
         //  COUCHE B — RESTRICTIONS PL  (NOUVEAU)
@@ -517,24 +442,17 @@
          * @param {'road'|'pl'} key
          */
         function toggleLayer(key) {
-            layerState[key] = !layerState[key];
-            const on = layerState[key];
+            if (key !== 'pl') return;
 
-            if (key === 'road') {
-                const opacity = on ? 0.75 : 0;
-                ['highlight-motorway', 'highlight-trunk', 'highlight-secondary'].forEach(id => {
-                    map.setPaintProperty(id, 'line-opacity', opacity);
-                });
-                _setToggleBtn('toggle-road', on, 'active-road');
-
-            } else if (key === 'pl') {
-                const opBlock = on ? 0.85 : 0;
-                const opWarn  = on ? 0.75 : 0;
-                map.setPaintProperty('plLayerBlock', 'line-opacity', opBlock);
-                map.setPaintProperty('plLayerWarn',  'line-opacity', opWarn);
-                _setToggleBtn('toggle-pl', on, 'active-pl');
-            }
+            layerState.pl = !layerState.pl;
+            const on = layerState.pl;
+        
+            const opacity = on ? 0.75 : 0;
+            map.setPaintProperty('plLayerBlock', 'line-opacity', opacity);
+            map.setPaintProperty('plLayerWarn',  'line-opacity', opacity);
+            _setToggleBtn('toggle-pl', on, 'active-pl');
         }
+
 
         /** Met à jour l'apparence visuelle du bouton toggle */
         function _setToggleBtn(btnId, on, activeClass) {
