@@ -376,11 +376,11 @@ async def recalculate_drag(data: RecalcDragRequest):
         print(f"ERREUR INATTENDUE : {type(e).__name__}: {e}")
         raise HTTPException(500, f"Erreur interne: {e}")
 
-    distance_m, duration_s = _extract_distance_duration(ptv)
+        distance_m, duration_s = _extract_distance_duration(ptv)
     prix_peage = _extract_toll(ptv)
     coords     = _extract_polyline(ptv)
 
-        print(f"RÉSULTAT PTV : dist={distance_m}m, dur={duration_s}s, peage={prix_peage}, coords={len(coords)} points")
+    print(f"RÉSULTAT PTV : dist={distance_m}m, dur={duration_s}s, peage={prix_peage}, coords={len(coords)} points")
 
     # ✅ Sauvegarde originaux + mise à jour polyline_current
     if data.route_id and FIREBASE_URL:
@@ -418,6 +418,12 @@ async def recalculate_drag(data: RecalcDragRequest):
             print(f"Erreur maj Firebase: {e}")
 
     return {
+        "distance_km": round(distance_m / 1000, 1),
+        "duration_h":  round(duration_s / 3600, 2),
+        "prix_peage":  round(prix_peage, 2),
+        "polyline":    coords,
+    }
+
 
 
 
