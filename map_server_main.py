@@ -383,8 +383,26 @@ async def recalculate_drag(data: RecalcDragRequest):
     print(f"RÉSULTAT PTV : dist={distance_m}m, dur={duration_s}s, peage={prix_peage}, coords={len(coords)} points")
 
     # ✅ On écrase seulement polyline_current, jamais polyline_original
-    if data.route_id and FIREBASE_URL:
+        if data.route_id and FIREBASE_URL:
+        try:
+            existing = httpx.get(
+                f"{FIREBASE_URL}/routes/{data.route_id}.json",
+                timeout=10
+            ).json() or {}
+        except Exception as e:
+            print(f"Erreur lecture Firebase: {e}")
+            existing = {}
+
+        originals_patch = {}
+        if "distance_km_original" not in existing:
+            originals_patch["distance_km_original"] = existing.get("distance_km")
+        if "duration_h_original" not in existing:
+            originals_patch["duration_h_original"] = existing.get("duration_h")
+        if "prix_peage_original" not in existing:
+            originals_patch["prix_peage_original"] = existing.get("prix_peage")
+
         update_data = {
+            **originals_patch,
             "polyline_current": coords,
             "distance_km":      round(distance_m / 1000, 1),
             "duration_h":       round(duration_s / 3600, 2),
@@ -398,6 +416,7 @@ async def recalculate_drag(data: RecalcDragRequest):
             )
         except Exception as e:
             print(f"Erreur maj Firebase: {e}")
+
 
     return {
         "distance_km": round(distance_m / 1000, 1),
