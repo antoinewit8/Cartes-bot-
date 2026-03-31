@@ -12,7 +12,6 @@
         body { margin: 0; padding: 0; font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; }
 
-        /* ── Info box (inchangée) ── */
         #info-box {
             position: absolute; top: 20px; left: 20px;
             background: rgba(255,255,255,0.95); backdrop-filter: blur(10px);
@@ -59,71 +58,10 @@
         .popup-btn-dest:hover { background: #c0392b; }
         .popup-btn-cancel { background: #ecf0f1; color: #7f8c8d; }
         .popup-btn-cancel:hover { background: #dce1e7; }
-
-        /* ══════════════════════════════════════════
-           PANNEAU TOGGLE — NOUVEAU
-        ══════════════════════════════════════════ */
-        #layer-panel {
-            position: absolute;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 20;
-            display: flex;
-            gap: 12px;
-            background: rgba(255,255,255,0.95);
-            backdrop-filter: blur(10px);
-            padding: 12px 18px;
-            border-radius: 40px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.18);
-            border: 1px solid #e1e8ed;
-        }
-
-        /* Bouton toggle individuel */
-        .toggle-btn {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            border-radius: 30px;
-            border: 2px solid transparent;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: bold;
-            transition: all 0.22s ease;
-            user-select: none;
-            background: #f0f3f5;
-            color: #5d6d7e;
-        }
-
-        /* État ON */
-        .toggle-btn.active-pl {
-            background: #fdf2ec;
-            color: #c0392b;
-            border-color: #e74c3c;
-        }
-        
-        /* Petite pastille colorée dans le bouton */
-        .toggle-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: inline-block;
-            flex-shrink: 0;
-        }
-        .dot-pl { background: #e74c3c; }
-        
-        /* Badge "chargement" sur le bouton PL */
-        .toggle-btn .badge-loading {
-            font-size: 11px;
-            opacity: 0.7;
-        }
-
     </style>
 </head>
 <body>
 
-    <!-- ═══ INFO BOX (inchangée) ═══ -->
     <div id="info-box">
         <h3>📍 {{ route.origin }} <br>🏁 {{ route.dest }}</h3>
         <div id="route-state" class="state-original">✅ Itinéraire original</div>
@@ -158,32 +96,12 @@
         </div>
     </div>
 
-    <!-- ═══ PANNEAU TOGGLE COUCHES — NOUVEAU ═══ -->
-    <div id="layer-panel">
-        <!-- Toggle B : Restrictions PL -->
-        <button
-            class="toggle-btn"
-            id="toggle-pl"
-            onclick="toggleLayer('pl')"
-            title="Segments interdits ou limités aux poids lourds (44t / 4m)"
-        >
-            <span class="toggle-dot dot-pl"></span>
-            🚛 Restrictions PL
-            <span class="badge-loading" id="pl-status"></span>
-        </button>
-
-    </div>
-
     <div id="loading-indicator">⏳ Calcul en cours...</div>
     <div id="map"></div>
 
     <script>
         const routeId   = "{{ route_id }}";
         const serverUrl = "{{ server_url }}";
-
-        // ═══════════════════════════════════════════════════════
-        //  DONNÉES INITIALES (inchangées)
-        // ═══════════════════════════════════════════════════════
 
         const initPolylineCurrent  = {{ (route.polyline_current  or route.polyline) | tojson }};
         const initPolylineOriginal = {{ (route.polyline_original or route.polyline) | tojson }};
@@ -195,18 +113,6 @@
         const endCoord   = originalGeojsonCoords[originalGeojsonCoords.length - 1];
 
         let isModified = false;
-
-        // ═══════════════════════════════════════════════════════
-        //  ÉTAT DES COUCHES — NOUVEAU
-        // ═══════════════════════════════════════════════════════
-
-        const layerState = {
-            pl: false
-        };
-
-        // ═══════════════════════════════════════════════════════
-        //  INITIALISATION CARTE
-        // ═══════════════════════════════════════════════════════
 
         const map = new maplibregl.Map({
             container: 'map',
@@ -222,7 +128,6 @@
 
         map.on('load', () => {
 
-            // ── Tracé ORIGINAL grisé ────────────────────────────
             map.addSource('originalRouteSource', {
                 type: 'geojson',
                 data: buildGeoJSON(originalGeojsonCoords)
@@ -234,7 +139,6 @@
                 paint: { 'line-color': '#95a5a6', 'line-width': 5, 'line-opacity': 0.0 }
             });
 
-            // ── Tracé ACTIF bleu ────────────────────────────────
             map.addSource('routeSource', {
                 type: 'geojson',
                 data: buildGeoJSON(geojsonCoords)
@@ -245,13 +149,9 @@
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: { 'line-color': '#007cbf', 'line-width': 6, 'line-opacity': 0.85 }
             });
-            
-            // ── COUCHE B : Restrictions PL ── NOUVEAU ───────────
-            _initPLLayer();   // fetch Overpass en arrière-plan
 
             fitBoundsToCoords(geojsonCoords);
 
-            // Marqueurs
             originMarker = new maplibregl.Marker({ color: '#27ae60', draggable: true })
                 .setLngLat(startCoord).addTo(map);
             destMarker = new maplibregl.Marker({ color: '#c0392b', draggable: true })
@@ -266,207 +166,6 @@
                 setModifiedState(true);
             }
         });
-
-        // ═══════════════════════════════════════════════════════
-        //  COUCHE A — TYPES DE ROUTES  (NOUVEAU)
-        // ═══════════════════════════════════════════════════════
-        /**
-         * On exploite les couches vectorielles déjà présentes dans le style
-         * CARTO Voyager (roads, tunnels, bridges) en ajoutant des couches
-         * de highlight par-dessus — opacité 0 par défaut, 1 quand activé.
-         *
-         * Filtres OSM highway :
-         *   motorway / motorway_link          → Autoroute  #e74c3c
-         *   trunk / trunk_link / primary      → Nationale  #f39c12
-         *   secondary / tertiary              → Dép.       #27ae60
-         */
-
-        // ═══════════════════════════════════════════════════════
-        //  COUCHE B — RESTRICTIONS PL  (NOUVEAU)
-        // ═══════════════════════════════════════════════════════
-        /**
-         * Stratégie :
-         *   1. Au load de la carte : requête Overpass API pour la bbox de l'itinéraire
-         *      → récupère les ways avec maxweight < 44 OU maxheight < 4
-         *   2. Transforme en GeoJSON LineString
-         *   3. Source GeoJSON locale → couche rouge/orange overlay
-         *   4. Tooltip au survol
-         *
-         * Overpass est gratuit, pas de clé, données OSM CC-BY.
-         */
-
-        async function _initPLLayer() {
-            const statusEl = document.getElementById('pl-status');
-            statusEl.textContent = '⏳';
-
-            // Source vide initialement
-            map.addSource('plSource', {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features: [] }
-            });
-
-            // Couche segments INTERDITS (poids > 44t ou hauteur > 4m)
-            map.addLayer({
-                id:     'plLayerBlock',
-                type:   'line',
-                source: 'plSource',
-                filter: ['==', ['get', 'severity'], 'block'],
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color':    '#e74c3c',
-                    'line-width':    6,
-                    'line-opacity':  0,          // caché par défaut
-                    'line-dasharray': [2, 2]
-                }
-            });
-
-            // Couche segments LIMITÉS (ex : 3.5t – 44t, ou 3.5m – 4m)
-            map.addLayer({
-                id:     'plLayerWarn',
-                type:   'line',
-                source: 'plSource',
-                filter: ['==', ['get', 'severity'], 'warn'],
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color':    '#f39c12',
-                    'line-width':    5,
-                    'line-opacity':  0,
-                    'line-dasharray': [3, 3]
-                }
-            });
-
-            // Tooltip hover
-            const plPopup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
-
-            ['plLayerBlock', 'plLayerWarn'].forEach(layerId => {
-                map.on('mouseenter', layerId, (e) => {
-                    if (!layerState.pl) return;
-                    map.getCanvas().style.cursor = 'pointer';
-                    const props = e.features[0].properties;
-                    let html = '<div style="font-size:13px; font-weight:bold; color:#c0392b;">🚫 Restriction PL</div>';
-                    if (props.maxweight) html += `<div>⚖️ Tonnage max : <b>${props.maxweight} t</b></div>`;
-                    if (props.maxheight) html += `<div>📏 Hauteur max : <b>${props.maxheight} m</b></div>`;
-                    if (props.name)      html += `<div style="color:#7f8c8d; font-size:12px; margin-top:4px;">${props.name}</div>`;
-                    plPopup.setLngLat(e.lngLat).setHTML(html).addTo(map);
-                });
-                map.on('mouseleave', layerId, () => {
-                    map.getCanvas().style.cursor = '';
-                    plPopup.remove();
-                });
-            });
-
-            // ── Fetch Overpass ───────────────────────────────────
-            try {
-                const geojson = await _fetchPLRestrictions();
-                map.getSource('plSource').setData(geojson);
-                statusEl.textContent = geojson.features.length > 0
-                    ? `(${geojson.features.length})`
-                    : '(0)';
-            } catch (err) {
-                console.warn('Overpass fetch échoué:', err);
-                statusEl.textContent = '⚠️';
-            }
-        }
-
-        /**
-         * Calcule la bbox de l'itinéraire + marge, puis interroge Overpass
-         * pour récupérer les ways avec restrictions de poids ou hauteur.
-         */
-        async function _fetchPLRestrictions() {
-
-            // Bbox de l'itinéraire avec marge de 0.3°
-            const lats = originalGeojsonCoords.map(c => c[1]);
-            const lngs = originalGeojsonCoords.map(c => c[0]);
-            const margin = 0.3;
-            const bbox = [
-                Math.min(...lats) - margin,
-                Math.min(...lngs) - margin,
-                Math.max(...lats) + margin,
-                Math.max(...lngs) + margin
-            ].join(',');
-
-            // Requête Overpass QL :
-            //   ways avec maxweight OU maxheight présents dans la bbox
-            const query = `
-                [out:json][timeout:25];
-                (
-                  way["maxweight"](${bbox});
-                  way["maxheight"](${bbox});
-                );
-                out geom;
-            `;
-
-            const res = await fetch('https://overpass-api.de/api/interpreter', {
-                method: 'POST',
-                body:   'data=' + encodeURIComponent(query)
-            });
-
-            if (!res.ok) throw new Error(`Overpass HTTP ${res.status}`);
-            const json = await res.json();
-
-            // Convertit les ways Overpass → GeoJSON features
-            const features = json.elements
-                .filter(el => el.type === 'way' && el.geometry)
-                .map(el => {
-                    const mw = parseFloat(el.tags?.maxweight);
-                    const mh = parseFloat(el.tags?.maxheight);
-
-                    // Classifie : block si interdit pour 44t/4m, warn si limite partielle
-                    let severity = 'warn';
-                    if ((mw && mw < 3.5) || (mh && mh < 3.5)) severity = 'block';
-
-                    return {
-                        type: 'Feature',
-                        properties: {
-                            severity,
-                            maxweight: mw || null,
-                            maxheight: mh || null,
-                            name:      el.tags?.name || null
-                        },
-                        geometry: {
-                            type: 'LineString',
-                            coordinates: el.geometry.map(pt => [pt.lon, pt.lat])
-                        }
-                    };
-                });
-
-            return { type: 'FeatureCollection', features };
-        }
-
-        // ═══════════════════════════════════════════════════════
-        //  TOGGLE LOGIQUE — NOUVEAU
-        // ═══════════════════════════════════════════════════════
-
-        /**
-         * Active / désactive une couche et met à jour le bouton.
-         * @param {'road'|'pl'} key
-         */
-        function toggleLayer(key) {
-            if (key !== 'pl') return;
-
-            layerState.pl = !layerState.pl;
-            const on = layerState.pl;
-        
-            const opacity = on ? 0.75 : 0;
-            map.setPaintProperty('plLayerBlock', 'line-opacity', opacity);
-            map.setPaintProperty('plLayerWarn',  'line-opacity', opacity);
-            _setToggleBtn('toggle-pl', on, 'active-pl');
-        }
-
-
-        /** Met à jour l'apparence visuelle du bouton toggle */
-        function _setToggleBtn(btnId, on, activeClass) {
-            const btn = document.getElementById(btnId);
-            if (on) {
-                btn.classList.add(activeClass);
-            } else {
-                btn.classList.remove(activeClass);
-            }
-        }
-
-        // ═══════════════════════════════════════════════════════
-        //  HELPERS (inchangés)
-        // ═══════════════════════════════════════════════════════
 
         function buildGeoJSON(coords) {
             return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } };
@@ -499,10 +198,6 @@
                 map.setPaintProperty('originalRouteLayer', 'line-opacity', 0.0);
             }
         }
-
-        // ═══════════════════════════════════════════════════════
-        //  WAYPOINTS (inchangés)
-        // ═══════════════════════════════════════════════════════
 
         function addWaypoint(lngLat) {
             const id = Date.now();
@@ -559,10 +254,6 @@
             });
         }
 
-        // ═══════════════════════════════════════════════════════
-        //  RESET & RECALCUL (inchangés)
-        // ═══════════════════════════════════════════════════════
-
         async function restoreOriginalDisplay() {
             geojsonCoords = [...originalGeojsonCoords];
             map.getSource('routeSource').setData(buildGeoJSON(geojsonCoords));
@@ -615,10 +306,6 @@
                 setLoading(false);
             }
         }
-
-        // ═══════════════════════════════════════════════════════
-        //  RECHERCHE ADRESSE (inchangée)
-        // ═══════════════════════════════════════════════════════
 
         let searchMarker = null, searchPopup = null;
 
