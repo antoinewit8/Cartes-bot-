@@ -376,7 +376,7 @@ async def recalculate_drag(data: RecalcDragRequest):
         print(f"ERREUR INATTENDUE : {type(e).__name__}: {e}")
         raise HTTPException(500, f"Erreur interne: {e}")
 
-        distance_m, duration_s = _extract_distance_duration(ptv)
+    distance_m, duration_s = _extract_distance_duration(ptv)
     prix_peage = _extract_toll(ptv)
     coords     = _extract_polyline(ptv)
 
