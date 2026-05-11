@@ -10,24 +10,21 @@ from fastapi.requests import Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
-import uvicorn, uuid, json, os, httpx
+import uvicorn, uuid, json, os, httpx, pathlib
 from dotenv import load_dotenv
-from fastapi.middleware.cors import CORSMiddleware
-
 
 load_dotenv()
 
+BASE_DIR = pathlib.Path(__file__).resolve().parent
+
 app = FastAPI(title="Arcelor Route Map Server")
-# --- AJOUTEZ CE BLOC ICI ---
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Autorise tous les sites web (dont votre Streamlit) à appeler cette API
-    allow_credentials=True,
-    allow_methods=["*"],  # Autorise toutes les méthodes (GET, POST, etc.)
-    allow_headers=["*"],
-)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+
+STATIC_DIR = BASE_DIR / "static"
+STATIC_DIR.mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+
 
 ROUTES_FILE = "data/routes.json"
 os.makedirs("data", exist_ok=True)
@@ -217,18 +214,17 @@ def _decode_polyline(encoded: str) -> list:
     return coords
 
 async def _geocode(address: str) -> Optional[list]:
+    """Géocode une adresse via PTV → [lat, lng]."""
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.myptv.com/geocoding/v1/locations/by-text",
             headers={"apiKey": PTV_API_KEY},
-            params={"searchText": address, "countryFilter": "BE,FR,LU,DE,NL"},
+            params={"searchText": address, "countryFilter": "FRA,BEL,LUX,DEU,ESP"},
             timeout=15,
         )
-    print(f"GEOCODE [{address}] → {resp.status_code}: {resp.text[:500]}")
     if resp.status_code != 200:
         return None
     results = resp.json().get("locations", [])
-    print(f"GEOCODE résultats : {len(results)} trouvés")
     if not results:
         return None
     loc = results[0]["referencePosition"]
@@ -291,12 +287,10 @@ async def create_route(route: RouteCreate):
     # ✅ CORRIGÉ : route_data créé AVANT d'être utilisé
     route_data = route.dict()
     route_data["polyline_original"] = route.polyline  # immuable, jamais écrasé
-    route_data["polyline_current"]  = route.polyline  # modifiable par drag
-    
-    route_data["distance_km_original"] = route_data.get("distance_km")
-    route_data["duration_h_original"]  = route_data.get("duration_h")
-    route_data["prix_peage_original"]  = route_data.get("prix_peage")
-
+    route_data["polyline_current"]  = route.polyline 
+    route_data["distance_km_original"] = route.distance_km
+    route_data["duration_h_original"]  = route.duration_h
+    route_data["prix_peage_original"]  = route.prix_peage 
 
     routes = {route_id: route_data}
     save_routes(routes)
@@ -387,8 +381,8 @@ async def recalculate_drag(data: RecalcDragRequest):
 
     print(f"RÉSULTAT PTV : dist={distance_m}m, dur={duration_s}s, peage={prix_peage}, coords={len(coords)} points")
 
-    # ✅ Sauvegarde originaux + mise à jour polyline_current
     if data.route_id and FIREBASE_URL:
+        # ── 1) Lire la route existante pour préserver les originaux ──
         try:
             existing = httpx.get(
                 f"{FIREBASE_URL}/routes/{data.route_id}.json",
@@ -398,6 +392,7 @@ async def recalculate_drag(data: RecalcDragRequest):
             print(f"Erreur lecture Firebase: {e}")
             existing = {}
 
+        # ── 2) Sauvegarder les originaux s'ils n'existent pas encore ──
         originals_patch = {}
         if "distance_km_original" not in existing:
             originals_patch["distance_km_original"] = existing.get("distance_km")
@@ -406,6 +401,7 @@ async def recalculate_drag(data: RecalcDragRequest):
         if "prix_peage_original" not in existing:
             originals_patch["prix_peage_original"] = existing.get("prix_peage")
 
+        # ── 3) Écrire originaux + nouvelles valeurs en un seul patch ──
         update_data = {
             **originals_patch,
             "polyline_current": coords,
@@ -428,7 +424,6 @@ async def recalculate_drag(data: RecalcDragRequest):
         "prix_peage":  round(prix_peage, 2),
         "polyline":    coords,
     }
-
 
 
 
@@ -477,7 +472,6 @@ async def reset_route(route_id: str):
     except Exception as e:
         raise HTTPException(500, f"Erreur reset: {e}")
     
-        
 @app.get("/api/geocode")
 async def geocode(q: str):
     if not q or len(q) < 3:
@@ -488,10 +482,11 @@ async def geocode(q: str):
     return {"lat": coords[0], "lng": coords[1], "label": q}
 
 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  LANCEMENT
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     uvicorn.run("map_server_main:app", host="0.0.0.0", port=8000, reload=False)
-
