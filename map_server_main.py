@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
 from pydantic import BaseModel
 from typing import List, Optional
-import uvicorn, uuid, json, os, httpx, base64
+import uvicorn, uuid, json, os, re, httpx, base64
 from datetime import date
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
@@ -123,6 +123,10 @@ class RouteRecalc(BaseModel):
     avoid_tolls:    bool = False
     avoid_highways: bool = False
     super_pref:     bool = False
+    # Envoyés par map.html : coordonnées exactes, prioritaires sur le géocodage
+    origin_coords:  Optional[List[float]] = None
+    dest_coords:    Optional[List[float]] = None
+    via:            List[List[float]] = []
 
 class WaypointItem(BaseModel):
     lat: float
@@ -174,6 +178,51 @@ def _extract_distance_duration(ptv: dict):
                 sum(l.get("travelTime", 0) for l in legs))
     return ptv.get("distance", 0), ptv.get("travelTime", 0)
 
+def _extract_toll_by_country(ptv: dict) -> list:
+    """
+    Ventilation du péage par pays : [{"country": "BE", "price": 43.35}, ...].
+
+    Structure PTV Developer v1 (validée le 16/09/2026 sur Liège → Rotterdam) :
+      toll.costs.countries[] = {countryCode, price: {price, currency},
+                                convertedPrice: {price, currency}}
+      toll.sections[]        = {countryCode, costs: [{price, currency, convertedPrice}]}
+    1. toll.costs.countries (détail natif, somme = total PTV)
+    2. repli : agrégation de toll.sections par countryCode
+    Le prix converti (EUR) prime toujours.
+    """
+    def _montant(obj):
+        if not isinstance(obj, dict):
+            return None
+        for cle in ("convertedPrice", "price"):
+            v = obj.get(cle)
+            if isinstance(v, dict):
+                v = v.get("price")
+            if isinstance(v, (int, float)):
+                return float(v)
+        return None
+
+    toll = (ptv or {}).get("toll") or {}
+    agrege = {}
+
+    for c in (toll.get("costs") or {}).get("countries") or []:
+        cc, m = c.get("countryCode"), _montant(c)
+        if cc and m is not None:
+            agrege[cc] = agrege.get(cc, 0.0) + m
+
+    if not agrege:
+        for sec in toll.get("sections") or []:
+            cc = sec.get("countryCode")
+            if not cc:
+                continue
+            for ligne in sec.get("costs") or []:
+                m = _montant(ligne)
+                if m is not None:
+                    agrege[cc] = agrege.get(cc, 0.0) + m
+
+    return sorted(({"country": k, "price": round(v, 2)} for k, v in agrege.items()),
+                  key=lambda x: -x["price"])
+
+
 def _extract_toll(ptv: dict) -> float:
     toll_data = ptv.get("toll", {}).get("costs", {})
     if isinstance(toll_data, dict):
@@ -198,12 +247,47 @@ def _decode_polyline(encoded: str) -> list:
         coords.append([lat / 1e5, lng / 1e5])
     return coords
 
+# Pays couverts par le géocodeur PTV (l'ancien filtre à 7 pays rendait
+# introuvables le Danemark, l'Italie, la Pologne...)
+COUNTRY_FILTER = ("FR,BE,LU,DE,ES,NL,GB,IT,CH,AT,PT,IE,"
+                  "DK,SE,NO,FI,PL,CZ,SK,HU,SI,HR,RO,BG,GR,EE,LV,LT")
+
+_COORD_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)\s*$")
+
+
+def _parse_coords(texte: str) -> Optional[list]:
+    """'50.6326,5.5797' -> [50.6326, 5.5797]. None si ce n'est pas un couple lat,lon.
+    Sans ce contrôle, PTV géocodait les coordonnées comme une adresse :
+    Liège finissait vers Thionville, Rotterdam en banlieue parisienne."""
+    m = _COORD_RE.match(texte or "")
+    if not m:
+        return None
+    lat, lng = float(m.group(1)), float(m.group(2))
+    if -90 <= lat <= 90 and -180 <= lng <= 180:
+        return [lat, lng]
+    return None
+
+
+def _valid_pair(v) -> Optional[list]:
+    if isinstance(v, (list, tuple)) and len(v) == 2:
+        try:
+            lat, lng = float(v[0]), float(v[1])
+        except (TypeError, ValueError):
+            return None
+        if -90 <= lat <= 90 and -180 <= lng <= 180:
+            return [lat, lng]
+    return None
+
+
 async def _geocode(address: str) -> Optional[list]:
+    coords = _parse_coords(address)
+    if coords:
+        return coords
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.myptv.com/geocoding/v1/locations/by-text",
             headers={"apiKey": PTV_API_KEY},
-            params={"searchText": address, "countryFilter": "FR,BE,LU,DE,ES,NL,GB"},
+            params={"searchText": address, "countryFilter": COUNTRY_FILTER},
             timeout=15,
         )
     if resp.status_code != 200:
@@ -218,7 +302,7 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
                     super_pref: bool = False) -> dict:
     query_params = [
         ("profile", "EUR_TRAILER_TRUCK"),
-        ("results", "POLYLINE,TOLL_COSTS"),
+        ("results", "POLYLINE,TOLL_COSTS,TOLL_SECTIONS"),
         ("options[currency]", "EUR"),
     ]
     for i, wp_str in enumerate(waypoints_list):
@@ -258,14 +342,18 @@ async def health():
 
 # ── Géocodage (recherche adresse depuis la carte) ────────────────────────────
 @app.get("/api/geocode")
-async def api_geocode(q: str):
+async def api_geocode(q: str, country: str = ""):
+    """`country` optionnel : codes ISO séparés par des virgules (ex. "NL,DK")."""
     if not q or len(q) < 3:
         raise HTTPException(400, "Requête trop courte")
+    coords = _parse_coords(q)
+    if coords:
+        return {"lat": coords[0], "lng": coords[1], "label": q}
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.myptv.com/geocoding/v1/locations/by-text",
             headers={"apiKey": PTV_API_KEY},
-            params={"searchText": q, "countryFilter": "FR,BE,LU,DE,ES,NL,GB"},
+            params={"searchText": q, "countryFilter": country.strip() or COUNTRY_FILTER},
             timeout=15,
         )
     if resp.status_code != 200:
@@ -326,11 +414,18 @@ async def show_map(request: Request, id: str):
 # ── Recalcul standard (texte) ────────────────────────────────────────────────
 @app.post("/api/recalculate")
 async def recalculate(data: RouteRecalc):
-    origin_coords = await _geocode(data.origin)
-    dest_coords   = await _geocode(data.dest)
+    origin_coords = _valid_pair(data.origin_coords) or await _geocode(data.origin)
+    dest_coords   = _valid_pair(data.dest_coords)   or await _geocode(data.dest)
     if not origin_coords or not dest_coords:
         raise HTTPException(400, "Géocodage impossible")
-    pref_wps = find_pref_waypoints(data.origin, data.dest, super_mode=data.super_pref)
+
+    # Étapes posées sur la carte : elles priment sur les jalons préférentiels
+    via = [p for p in (_valid_pair(v) for v in data.via) if p]
+    if via:
+        pref_wps = [{"lat": p[0], "lng": p[1]} for p in via]
+    else:
+        pref_wps = find_pref_waypoints(data.origin, data.dest, super_mode=data.super_pref)
+
     waypoints_list = [f"{origin_coords[0]},{origin_coords[1]}"]
     for wp in pref_wps:
         waypoints_list.append(f"{wp['lat']},{wp['lng']}")
@@ -341,6 +436,7 @@ async def recalculate(data: RouteRecalc):
         "distance_km":    round(distance_m / 1000, 1),
         "duration_h":     round(duration_s / 3600, 2),
         "prix_peage":     round(_extract_toll(ptv), 2),
+        "toll_by_country": _extract_toll_by_country(ptv),
         "polyline":       _extract_polyline(ptv),
         "origin":         data.origin,
         "dest":           data.dest,
@@ -368,6 +464,7 @@ async def recalculate_drag(data: RecalcDragRequest):
 
     distance_m, duration_s = _extract_distance_duration(ptv)
     prix_peage = _extract_toll(ptv)
+    toll_pays  = _extract_toll_by_country(ptv)
     coords     = _extract_polyline(ptv)
     print(f"RÉSULTAT PTV : {round(distance_m/1000,1)}km, {len(coords)} points")
 
@@ -378,6 +475,7 @@ async def recalculate_drag(data: RecalcDragRequest):
             "distance_km":      round(distance_m / 1000, 1),
             "duration_h":       round(duration_s / 3600, 2),
             "prix_peage":       round(prix_peage, 2),
+            "toll_by_country":  toll_pays,
         }
         try:
             httpx.patch(
@@ -391,6 +489,7 @@ async def recalculate_drag(data: RecalcDragRequest):
         "distance_km": round(distance_m / 1000, 1),
         "duration_h":  round(duration_s / 3600, 2),
         "prix_peage":  round(prix_peage, 2),
+        "toll_by_country": toll_pays,
         "polyline":    coords,
     }
 
