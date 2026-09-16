@@ -223,6 +223,60 @@ def _extract_toll_by_country(ptv: dict) -> list:
                   key=lambda x: -x["price"])
 
 
+def _extract_km_by_country(ptv: dict) -> list:
+    """
+    Kilomètres parcourus par pays : [{"country": "BE", "km": 168.2}, ...].
+
+    PTV ne fournit pas ce total : on le reconstitue à partir des événements.
+      - WAYPOINT_EVENTS : le premier événement (distanceFromStart = 0) porte le
+        countryCode du départ.
+      - BORDER_EVENTS   : chaque passage de frontière porte distanceFromStart
+        et border.countryCode = pays dans lequel on entre.
+    La distance totale est découpée entre ces jalons ; la somme des pays est
+    donc égale à la distance de la route (aux arrondis près).
+    """
+    total_m = ptv.get("distance") or 0
+    events = sorted((e for e in (ptv.get("events") or []) if isinstance(e, dict)),
+                    key=lambda e: e.get("distanceFromStart") or 0)
+    if not total_m or not events:
+        return []   # pas d'événements reçus : ventilation inconnue
+
+    def _pays_entree(e):
+        b = e.get("border")
+        if isinstance(b, dict):
+            return b.get("countryCode") or e.get("countryCode")
+        return None
+
+    # Pays de départ : premier événement non-frontière, sinon repli sur la
+    # première section de péage, sinon inconnu
+    depart = None
+    for e in events:
+        if "border" not in e and e.get("countryCode"):
+            depart = e["countryCode"]
+            break
+    if not depart:
+        secs = ((ptv.get("toll") or {}).get("sections") or [])
+        premiere_frontiere = next((e for e in events if "border" in e), None)
+        if secs and not premiere_frontiere:
+            depart = secs[0].get("countryCode")
+    depart = depart or "??"
+
+    agrege, pays, debut = {}, depart, 0
+    for e in events:
+        entree = _pays_entree(e)
+        if not entree:
+            continue
+        d = e.get("distanceFromStart") or 0
+        if d > debut:
+            agrege[pays] = agrege.get(pays, 0) + (d - debut)
+        pays, debut = entree, max(d, debut)
+    if total_m > debut:
+        agrege[pays] = agrege.get(pays, 0) + (total_m - debut)
+
+    return sorted(({"country": k, "km": round(v / 1000, 1)} for k, v in agrege.items() if v > 0),
+                  key=lambda x: -x["km"])
+
+
 def _extract_toll(ptv: dict) -> float:
     toll_data = ptv.get("toll", {}).get("costs", {})
     if isinstance(toll_data, dict):
@@ -302,7 +356,7 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
                     super_pref: bool = False) -> dict:
     query_params = [
         ("profile", "EUR_TRAILER_TRUCK"),
-        ("results", "POLYLINE,TOLL_COSTS,TOLL_SECTIONS"),
+        ("results", "POLYLINE,TOLL_COSTS,TOLL_SECTIONS,BORDER_EVENTS,WAYPOINT_EVENTS"),
         ("options[currency]", "EUR"),
     ]
     for i, wp_str in enumerate(waypoints_list):
@@ -437,6 +491,7 @@ async def recalculate(data: RouteRecalc):
         "duration_h":     round(duration_s / 3600, 2),
         "prix_peage":     round(_extract_toll(ptv), 2),
         "toll_by_country": _extract_toll_by_country(ptv),
+        "km_by_country":  _extract_km_by_country(ptv),
         "polyline":       _extract_polyline(ptv),
         "origin":         data.origin,
         "dest":           data.dest,
@@ -465,6 +520,7 @@ async def recalculate_drag(data: RecalcDragRequest):
     distance_m, duration_s = _extract_distance_duration(ptv)
     prix_peage = _extract_toll(ptv)
     toll_pays  = _extract_toll_by_country(ptv)
+    km_pays    = _extract_km_by_country(ptv)
     coords     = _extract_polyline(ptv)
     print(f"RÉSULTAT PTV : {round(distance_m/1000,1)}km, {len(coords)} points")
 
@@ -476,6 +532,7 @@ async def recalculate_drag(data: RecalcDragRequest):
             "duration_h":       round(duration_s / 3600, 2),
             "prix_peage":       round(prix_peage, 2),
             "toll_by_country":  toll_pays,
+            "km_by_country":    km_pays,
         }
         try:
             httpx.patch(
@@ -490,6 +547,7 @@ async def recalculate_drag(data: RecalcDragRequest):
         "duration_h":  round(duration_s / 3600, 2),
         "prix_peage":  round(prix_peage, 2),
         "toll_by_country": toll_pays,
+        "km_by_country":   km_pays,
         "polyline":    coords,
     }
 
