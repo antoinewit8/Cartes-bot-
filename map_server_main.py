@@ -1,6 +1,13 @@
 """
 Serveur de cartes interactives.
 Déployable sur Render.com (gratuit) → URL publique permanente.
+
+Traversées maritimes / ferroviaires (ferries, navettes type Eurotunnel) :
+  - chaque calcul renvoie `crossings` : les traversées que PTV a mises sur le trajet ;
+  - GET /api/ferry_options liste les lignes disponibles autour d'un port
+    (ou par nom de port) via la Data API PTV ;
+  - /api/recalculate et /api/recalculate_drag acceptent `ferries` : liste de
+    paramètres "combinedTransport=latA,lonA,latB,lonB" à imposer au trajet.
 """
 
 from fastapi import FastAPI, HTTPException
@@ -9,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
 from pydantic import BaseModel
 from typing import List, Optional
-import uvicorn, uuid, json, os, re, httpx, base64
+import uvicorn, uuid, json, os, re, math, httpx, base64
 from datetime import date
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +41,16 @@ os.makedirs("data", exist_ok=True)
 PTV_API_KEY    = os.environ.get("PTV_API_KEY", "")
 MAP_SERVER_URL = os.environ.get("MAP_SERVER_URL", "http://localhost:8000")
 FIREBASE_URL   = os.environ.get("FIREBASE_URL", "").rstrip("/")
+
+PTV_ROUTING_URL  = "https://api.myptv.com/routing/v1/routes"
+PTV_GEOCODE_URL  = "https://api.myptv.com/geocoding/v1/locations/by-text"
+PTV_CT_URL       = "https://api.myptv.com/data/v1/combined-transports"
+
+# Rayon de recherche des lignes autour du port d'embarquement : 60 km couvre
+# par exemple Calais + Dunkerque + le terminal Eurotunnel.
+FERRY_RADIUS_KM_DEFAULT = 60
+FERRY_RADIUS_KM_MAX     = 150
+FERRY_OPTIONS_MAX       = 40
 
 # ── GitHub API ────────────────────────────────────────────────────────────────
 GITHUB_TOKEN  = os.environ.get("GITHUB_TOKEN", "")
@@ -127,6 +144,8 @@ class RouteRecalc(BaseModel):
     origin_coords:  Optional[List[float]] = None
     dest_coords:    Optional[List[float]] = None
     via:            List[List[float]] = []
+    # Traversées imposées : "combinedTransport=latA,lonA,latB,lonB"
+    ferries:        List[str] = []
 
 class WaypointItem(BaseModel):
     lat: float
@@ -138,12 +157,14 @@ class RecalcDragRequest(BaseModel):
     avoid_highways: bool = False
     super_pref:     bool = False
     route_id:       Optional[str] = None
+    ferries:        List[str] = []
 
 class SaveReferenceRequest(BaseModel):
     origin:    str
     dest:      str
     waypoints: List[WaypointItem]
     km:        float
+    ferries:   List[str] = []
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -247,13 +268,19 @@ def _extract_km_by_country(ptv: dict) -> list:
             return b.get("countryCode") or e.get("countryCode")
         return None
 
-    # Pays de départ : premier événement non-frontière, sinon repli sur la
-    # première section de péage, sinon inconnu
+    # Pays de départ : l'événement du premier waypoint en priorité (les
+    # événements de traversée portent aussi un countryCode), sinon le premier
+    # événement non-frontière, sinon la première section de péage.
     depart = None
     for e in events:
-        if "border" not in e and e.get("countryCode"):
+        if "waypoint" in e and e.get("countryCode"):
             depart = e["countryCode"]
             break
+    if not depart:
+        for e in events:
+            if "border" not in e and e.get("countryCode"):
+                depart = e["countryCode"]
+                break
     if not depart:
         secs = ((ptv.get("toll") or {}).get("sections") or [])
         premiere_frontiere = next((e for e in events if "border" in e), None)
@@ -275,6 +302,80 @@ def _extract_km_by_country(ptv: dict) -> list:
 
     return sorted(({"country": k, "km": round(v / 1000, 1)} for k, v in agrege.items() if v > 0),
                   key=lambda x: -x["km"])
+
+
+def _extract_crossings(ptv: dict) -> list:
+    """
+    Traversées présentes sur le trajet, à partir des COMBINED_TRANSPORT_EVENTS.
+    PTV émet un événement ENTER (embarquement) et un EXIT (débarquement) ;
+    relatedEventIndex relie les deux. Les noms de ports ne sont pas fournis
+    ici : seule la liaison porte un nom.
+    """
+    events = ptv.get("events") or []
+    ouverts, ordre, crossings = {}, [], []
+
+    for idx, e in enumerate(events):
+        if not isinstance(e, dict):
+            continue
+        ct = e.get("combinedTransport")
+        if not isinstance(ct, dict):
+            continue
+        acces = str(ct.get("accessType") or "").upper()
+        if acces == "ENTER":
+            ouverts[idx] = e
+            ordre.append(idx)
+            continue
+        if acces != "EXIT":
+            continue
+
+        rel = ct.get("relatedEventIndex")
+        if rel in ouverts:
+            i_in = rel
+        elif ordre:
+            i_in = ordre[-1]
+        else:
+            continue
+        entree = ouverts.pop(i_in)
+        ordre.remove(i_in)
+        ct_in = entree.get("combinedTransport") or {}
+
+        if entree.get("latitude") is None or e.get("latitude") is None:
+            continue
+        d0 = entree.get("distanceFromStart") or 0
+        d1 = e.get("distanceFromStart") or 0
+        t0 = entree.get("travelTimeFromStart") or 0
+        t1 = e.get("travelTimeFromStart") or 0
+
+        crossings.append({
+            "name": ct.get("name") or ct_in.get("name") or "",
+            "type": str(ct.get("type") or ct_in.get("type") or "BOAT").upper(),
+            "start": {"lat": entree.get("latitude"), "lng": entree.get("longitude"),
+                      "cc": entree.get("countryCode")},
+            "end":   {"lat": e.get("latitude"), "lng": e.get("longitude"),
+                      "cc": e.get("countryCode")},
+            "from_start_km": round(d0 / 1000, 1),
+            "distance_km":   round(max(d1 - d0, 0) / 1000, 1),
+            "duration_min":  round(max(t1 - t0, 0) / 60),
+        })
+
+    crossings.sort(key=lambda c: c["from_start_km"])
+    return crossings
+
+
+def _extract_ct_warnings(ptv: dict) -> list:
+    """Avertissements PTV liés aux traversées imposées (ligne ignorée, ambiguë)."""
+    out = []
+    for w in (ptv or {}).get("warnings") or []:
+        if not isinstance(w, dict):
+            continue
+        code = str(w.get("warningCode") or "")
+        if code.startswith("ROUTING_COMBINED_TRANSPORT"):
+            out.append({
+                "code":        code,
+                "description": w.get("description", ""),
+                "details":     w.get("details") or {},
+            })
+    return out
 
 
 def _extract_toll(ptv: dict) -> float:
@@ -301,12 +402,34 @@ def _decode_polyline(encoded: str) -> list:
         coords.append([lat / 1e5, lng / 1e5])
     return coords
 
+
+def _route_payload(ptv: dict) -> dict:
+    """Champs communs renvoyés par les deux endpoints de calcul."""
+    distance_m, duration_s = _extract_distance_duration(ptv)
+    crossings = _extract_crossings(ptv)
+    return {
+        "distance_km":     round(distance_m / 1000, 1),
+        "duration_h":      round(duration_s / 3600, 2),
+        "prix_peage":      round(_extract_toll(ptv), 2),
+        "toll_by_country": _extract_toll_by_country(ptv),
+        "km_by_country":   _extract_km_by_country(ptv),
+        "crossings":       crossings,
+        "ferry_km":        round(sum(c["distance_km"] for c in crossings), 1),
+        "ferry_warnings":  _extract_ct_warnings(ptv),
+        "polyline":        _extract_polyline(ptv),
+    }
+
+
 # Pays couverts par le géocodeur PTV (l'ancien filtre à 7 pays rendait
 # introuvables le Danemark, l'Italie, la Pologne...)
 COUNTRY_FILTER = ("FR,BE,LU,DE,ES,NL,GB,IT,CH,AT,PT,IE,"
                   "DK,SE,NO,FI,PL,CZ,SK,HU,SI,HR,RO,BG,GR,EE,LV,LT")
 
 _COORD_RE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)\s*$")
+
+_NUM = r"(-?\d+(?:\.\d+)?)"
+_CT_RE = re.compile(
+    rf"^\s*combinedTransport\s*=\s*{_NUM}\s*,\s*{_NUM}\s*,\s*{_NUM}\s*,\s*{_NUM}\s*$")
 
 
 def _parse_coords(texte: str) -> Optional[list]:
@@ -333,13 +456,80 @@ def _valid_pair(v) -> Optional[list]:
     return None
 
 
+def _parse_ferry(param: str) -> Optional[tuple]:
+    """'combinedTransport=latA,lonA,latB,lonB' -> ((latA, lonA), (latB, lonB)).
+    Tout ce qui ne correspond pas exactement à ce format est rejeté : la
+    valeur part telle quelle dans la requête PTV."""
+    m = _CT_RE.match(param or "")
+    if not m:
+        return None
+    a_lat, a_lng, b_lat, b_lng = (float(m.group(i)) for i in range(1, 5))
+    for lat, lng in ((a_lat, a_lng), (b_lat, b_lng)):
+        if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+            return None
+    return (a_lat, a_lng), (b_lat, b_lng)
+
+
+def _ferry_param(start: tuple, dest: tuple) -> str:
+    return (f"combinedTransport={start[0]:.6f},{start[1]:.6f},"
+            f"{dest[0]:.6f},{dest[1]:.6f}")
+
+
+def _dist_km(a, b) -> float:
+    """Distance à vol d'oiseau entre deux (lat, lng)."""
+    r = 6371.0
+    la1, lo1, la2, lo2 = map(math.radians, (a[0], a[1], b[0], b[1]))
+    h = (math.sin((la2 - la1) / 2) ** 2
+         + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2)
+    return 2 * r * math.asin(math.sqrt(h))
+
+
+def _insert_ferries(points: List[str], ferries: List[str]) -> List[str]:
+    """
+    Place chaque traversée imposée dans la séquence de points.
+
+    PTV exige que le waypoint combinedTransport soit entre les bons points :
+    ni en premier, ni en dernier, et du bon côté des étapes. On l'insère là où
+    il ajoute le moins de détour à vol d'oiseau :
+        d(point avant, port A) + d(port B, point après) - d(point avant, point après)
+    """
+    noeuds = []
+    for p in points:
+        lat, lng = (float(x.strip()) for x in p.split(","))
+        noeuds.append({"param": p, "entree": (lat, lng), "sortie": (lat, lng)})
+
+    vus = set()
+    for f in ferries or []:
+        parsed = _parse_ferry(f)
+        if not parsed:
+            print(f"Traversée ignorée (format invalide) : {f!r}")
+            continue
+        a, b = parsed
+        param = _ferry_param(a, b)
+        if param in vus:
+            continue
+        vus.add(param)
+
+        meilleur, cout_min = None, float("inf")
+        for i in range(len(noeuds) - 1):
+            avant, apres = noeuds[i]["sortie"], noeuds[i + 1]["entree"]
+            cout = _dist_km(avant, a) + _dist_km(b, apres) - _dist_km(avant, apres)
+            if cout < cout_min:
+                meilleur, cout_min = i, cout
+        if meilleur is None:
+            continue
+        noeuds.insert(meilleur + 1, {"param": param, "entree": a, "sortie": b})
+
+    return [n["param"] for n in noeuds]
+
+
 async def _geocode(address: str) -> Optional[list]:
     coords = _parse_coords(address)
     if coords:
         return coords
     async with httpx.AsyncClient() as client:
         resp = await client.get(
-            "https://api.myptv.com/geocoding/v1/locations/by-text",
+            PTV_GEOCODE_URL,
             headers={"apiKey": PTV_API_KEY},
             params={"searchText": address, "countryFilter": COUNTRY_FILTER},
             timeout=15,
@@ -354,15 +544,26 @@ async def _geocode(address: str) -> Optional[list]:
 
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool,
                     super_pref: bool = False) -> dict:
+    """
+    waypoints_list : "lat,lng" pour les points classiques,
+                     "combinedTransport=..." pour une traversée imposée
+                     (jamais en première ni en dernière position).
+    """
     query_params = [
         ("profile", "EUR_TRAILER_TRUCK"),
-        ("results", "POLYLINE,TOLL_COSTS,TOLL_SECTIONS,BORDER_EVENTS,WAYPOINT_EVENTS"),
+        ("results", "POLYLINE,TOLL_COSTS,TOLL_SECTIONS,BORDER_EVENTS,"
+                    "WAYPOINT_EVENTS,COMBINED_TRANSPORT_EVENTS"),
         ("options[currency]", "EUR"),
     ]
+    dernier = len(waypoints_list) - 1
     for i, wp_str in enumerate(waypoints_list):
+        if wp_str.startswith("combinedTransport="):
+            if 0 < i < dernier:
+                query_params.append(("waypoints", wp_str))
+            continue
         parts = wp_str.split(",")
         lat, lng = float(parts[0].strip()), float(parts[1].strip())
-        if 0 < i < len(waypoints_list) - 1:
+        if 0 < i < dernier:
             query_params.append(("waypoints", f"{lat},{lng};radius=5000"))
         else:
             query_params.append(("waypoints", f"{lat},{lng}"))
@@ -374,7 +575,7 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
     print(f"PTV QUERY: {query_params}")
     async with httpx.AsyncClient() as client:
         resp = await client.get(
-            "https://api.myptv.com/routing/v1/routes",
+            PTV_ROUTING_URL,
             headers={"apiKey": PTV_API_KEY},
             params=query_params,
             timeout=30,
@@ -405,7 +606,7 @@ async def api_geocode(q: str, country: str = ""):
         return {"lat": coords[0], "lng": coords[1], "label": q}
     async with httpx.AsyncClient() as client:
         resp = await client.get(
-            "https://api.myptv.com/geocoding/v1/locations/by-text",
+            PTV_GEOCODE_URL,
             headers={"apiKey": PTV_API_KEY},
             params={"searchText": q, "countryFilter": country.strip() or COUNTRY_FILTER},
             timeout=15,
@@ -418,6 +619,97 @@ async def api_geocode(q: str, country: str = ""):
     loc   = results[0]["referencePosition"]
     label = results[0].get("address", {}).get("formattedAddress", q)
     return {"lat": loc["latitude"], "lng": loc["longitude"], "label": label}
+
+
+# ── Lignes de ferry / navettes disponibles ───────────────────────────────────
+@app.get("/api/ferry_options")
+async def ferry_options(
+    lat: Optional[float] = None,
+    lng: Optional[float] = None,
+    radius_km: float = FERRY_RADIUS_KM_DEFAULT,
+    q: str = "",
+    dest_lat: Optional[float] = None,
+    dest_lng: Optional[float] = None,
+    dest_cc: str = "",
+):
+    """
+    Lignes au départ d'un port, via la Data API PTV (getCombinedTransports).
+      - par position : lat/lng du port d'embarquement + radius_km ;
+      - par texte    : q = nom de port ou de liaison ("Dunkerque", "Rosslare").
+    dest_* (optionnels) : débarquement actuel, pour classer en tête les lignes
+    qui arrivent dans le même pays et au plus près.
+    Seules les lignes ouvertes aux camions sont renvoyées.
+    """
+    q = (q or "").strip()
+    if q:
+        if len(q) < 2:
+            raise HTTPException(400, "Recherche trop courte")
+        params = {"text[query]": q}
+    elif lat is not None and lng is not None:
+        rayon = min(max(radius_km, 1), FERRY_RADIUS_KM_MAX)
+        params = {
+            "position[latitude]":  lat,
+            "position[longitude]": lng,
+            "position[radius]":    int(rayon * 1000),
+        }
+    else:
+        raise HTTPException(400, "Donner q, ou lat et lng")
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            PTV_CT_URL,
+            headers={"apiKey": PTV_API_KEY},
+            params=params,
+            timeout=20,
+        )
+    if resp.status_code != 200:
+        print(f"PTV DATA ERROR {resp.status_code}: {resp.text[:500]}")
+        raise HTTPException(502, f"PTV Data API {resp.status_code}: {resp.text[:300]}")
+
+    items = resp.json().get("combinedTransports") or []
+    options, vus = [], set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        autorises = it.get("allowedFor")
+        if autorises is not None and "TRUCK" not in str(autorises).upper():
+            continue
+        s, d = it.get("start") or {}, it.get("destination") or {}
+        try:
+            a = (float(s["latitude"]), float(s["longitude"]))
+            b = (float(d["latitude"]), float(d["longitude"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+        wp = _ferry_param(a, b)
+        if wp in vus:
+            continue
+        vus.add(wp)
+        duree = it.get("duration")
+        options.append({
+            "wp":           wp,
+            "name":         it.get("name") or "",
+            "type":         str(it.get("type") or "BOAT").upper(),
+            "duration_min": round(duree / 60) if isinstance(duree, (int, float)) else None,
+            "start": {"lat": a[0], "lng": a[1], "name": s.get("name") or "",
+                      "cc": (s.get("countryCode") or "").upper()},
+            "dest":  {"lat": b[0], "lng": b[1], "name": d.get("name") or "",
+                      "cc": (d.get("countryCode") or "").upper()},
+        })
+
+    # PTV trie par distance au point de recherche. Si on connaît le
+    # débarquement actuel, les lignes comparables passent devant.
+    if dest_lat is not None and dest_lng is not None:
+        cc = (dest_cc or "").upper()
+        options.sort(key=lambda o: (
+            0 if cc and o["dest"]["cc"] == cc else 1,
+            _dist_km((dest_lat, dest_lng), (o["dest"]["lat"], o["dest"]["lng"])),
+            o["duration_min"] or 0,
+        ))
+
+    return {
+        "options":   options[:FERRY_OPTIONS_MAX],
+        "truncated": len(options) > FERRY_OPTIONS_MAX,
+    }
 
 
 # ── Créer une route ──────────────────────────────────────────────────────────
@@ -484,19 +776,17 @@ async def recalculate(data: RouteRecalc):
     for wp in pref_wps:
         waypoints_list.append(f"{wp['lat']},{wp['lng']}")
     waypoints_list.append(f"{dest_coords[0]},{dest_coords[1]}")
+    waypoints_list = _insert_ferries(waypoints_list, data.ferries)
+
     ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways, data.super_pref)
-    distance_m, duration_s = _extract_distance_duration(ptv)
-    return {
-        "distance_km":    round(distance_m / 1000, 1),
-        "duration_h":     round(duration_s / 3600, 2),
-        "prix_peage":     round(_extract_toll(ptv), 2),
-        "toll_by_country": _extract_toll_by_country(ptv),
-        "km_by_country":  _extract_km_by_country(ptv),
-        "polyline":       _extract_polyline(ptv),
+    payload = _route_payload(ptv)
+    payload.update({
         "origin":         data.origin,
         "dest":           data.dest,
         "pref_waypoints": pref_wps,
-    }
+        "ferries_sent":   [w for w in waypoints_list if w.startswith("combinedTransport=")],
+    })
+    return payload
 
 
 # ── Recalcul drag ────────────────────────────────────────────────────────────
@@ -504,7 +794,8 @@ async def recalculate(data: RouteRecalc):
 async def recalculate_drag(data: RecalcDragRequest):
     if len(data.waypoints) < 2:
         raise HTTPException(400, "Il faut au minimum 2 waypoints")
-    waypoints_list = [f"{wp.lat},{wp.lng}" for wp in data.waypoints]
+    waypoints_list = _insert_ferries([f"{wp.lat},{wp.lng}" for wp in data.waypoints],
+                                     data.ferries)
     print("="*60)
     print(f"DRAG RECALC — {len(waypoints_list)} waypoints")
     for i, wp in enumerate(waypoints_list):
@@ -517,22 +808,21 @@ async def recalculate_drag(data: RecalcDragRequest):
     except Exception as e:
         raise HTTPException(500, f"Erreur interne: {e}")
 
-    distance_m, duration_s = _extract_distance_duration(ptv)
-    prix_peage = _extract_toll(ptv)
-    toll_pays  = _extract_toll_by_country(ptv)
-    km_pays    = _extract_km_by_country(ptv)
-    coords     = _extract_polyline(ptv)
-    print(f"RÉSULTAT PTV : {round(distance_m/1000,1)}km, {len(coords)} points")
+    payload = _route_payload(ptv)
+    payload["ferries_sent"] = [w for w in waypoints_list if w.startswith("combinedTransport=")]
+    print(f"RÉSULTAT PTV : {payload['distance_km']}km, {len(payload['polyline'])} points, "
+          f"{len(payload['crossings'])} traversée(s)")
 
     # Mise à jour Firebase — polyline_current uniquement, originaux préservés
     if data.route_id and FIREBASE_URL:
         update_data = {
-            "polyline_current": coords,
-            "distance_km":      round(distance_m / 1000, 1),
-            "duration_h":       round(duration_s / 3600, 2),
-            "prix_peage":       round(prix_peage, 2),
-            "toll_by_country":  toll_pays,
-            "km_by_country":    km_pays,
+            "polyline_current": payload["polyline"],
+            "distance_km":      payload["distance_km"],
+            "duration_h":       payload["duration_h"],
+            "prix_peage":       payload["prix_peage"],
+            "toll_by_country":  payload["toll_by_country"],
+            "km_by_country":    payload["km_by_country"],
+            "crossings":        payload["crossings"],
         }
         try:
             httpx.patch(
@@ -542,14 +832,7 @@ async def recalculate_drag(data: RecalcDragRequest):
         except Exception as e:
             print(f"Erreur maj Firebase: {e}")
 
-    return {
-        "distance_km": round(distance_m / 1000, 1),
-        "duration_h":  round(duration_s / 3600, 2),
-        "prix_peage":  round(prix_peage, 2),
-        "toll_by_country": toll_pays,
-        "km_by_country":   km_pays,
-        "polyline":    coords,
-    }
+    return payload
 
 
 # ── Reset route ───────────────────────────────────────────────────────────────
@@ -653,30 +936,32 @@ async def save_reference(data: SaveReferenceRequest):
             break
 
     wp_strings = [f"{wp.lat:.6f}, {wp.lng:.6f}" for wp in data.waypoints]
+    ferries = []
+    for f in data.ferries:
+        parsed = _parse_ferry(f)
+        if parsed:
+            ferries.append(_ferry_param(*parsed))
     today = date.today().isoformat()
+
+    entree = {
+        "origine":      data.origin.strip(),
+        "destination":  data.dest.strip(),
+        "waypoints":    wp_strings,
+        "km_reference": round(data.km, 1),
+        "source":       "carte_manuelle",
+        "date":         today,
+    }
+    if ferries:
+        entree["ferries"] = ferries
 
     if existing_idx is not None:
         new_confiance = routes[existing_idx].get("confiance", 1) + 1
-        routes[existing_idx] = {
-            "origine":      data.origin.strip(),
-            "destination":  data.dest.strip(),
-            "waypoints":    wp_strings,
-            "km_reference": round(data.km, 1),
-            "source":       "carte_manuelle",
-            "date":         today,
-            "confiance":    new_confiance,
-        }
+        entree["confiance"] = new_confiance
+        routes[existing_idx] = entree
         action = f"update ({new_confiance}x validé)"
     else:
-        routes.append({
-            "origine":      data.origin.strip(),
-            "destination":  data.dest.strip(),
-            "waypoints":    wp_strings,
-            "km_reference": round(data.km, 1),
-            "source":       "carte_manuelle",
-            "date":         today,
-            "confiance":    1,
-        })
+        entree["confiance"] = 1
+        routes.append(entree)
         action = "ajout"
 
     commit_msg = f"feat(routes): {action} {data.origin} → {data.dest} ({round(data.km)}km)"
@@ -693,6 +978,7 @@ async def save_reference(data: SaveReferenceRequest):
         "origin":        data.origin,
         "dest":          data.dest,
         "waypoints":     len(wp_strings),
+        "ferries":       len(ferries),
         "km":            round(data.km, 1),
         "total_learned": len(routes),
     }
