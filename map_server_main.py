@@ -25,6 +25,9 @@ load_dotenv()
 
 app = FastAPI(title="CB Route Map Server")
 
+from ptv_geocodage import router as ptv_geo_router
+app.include_router(ptv_geo_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
