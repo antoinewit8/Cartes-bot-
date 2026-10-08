@@ -140,7 +140,8 @@ class RouteRecalc(BaseModel):
     avoid_tolls:    bool = False
     avoid_highways: bool = False
     traffic:        bool = True     # False = ignore fermetures/bouchons en temps réel
-    alternatives:   bool = True     # variantes PTV (seulement départ → arrivée sans étape)
+    alternatives:   bool = False    # variantes PTV (seulement départ → arrivée sans étape)
+    co2:            bool = False    # émissions CO2e ISO 14083, camion Euro 6
     super_pref:     bool = False
     # Envoyés par map.html : coordonnées exactes, prioritaires sur le géocodage
     origin_coords:  Optional[List[float]] = None
@@ -158,7 +159,8 @@ class RecalcDragRequest(BaseModel):
     avoid_tolls:    bool = False
     avoid_highways: bool = False
     traffic:        bool = True     # False = ignore fermetures/bouchons en temps réel
-    alternatives:   bool = True     # variantes PTV (seulement départ → arrivée sans étape)
+    alternatives:   bool = False    # variantes PTV (seulement départ → arrivée sans étape)
+    co2:            bool = False    # émissions CO2e ISO 14083, camion Euro 6
     super_pref:     bool = False
     route_id:       Optional[str] = None
     ferries:        List[str] = []
@@ -505,6 +507,38 @@ def _extract_alternatives(ptv: dict) -> list:
     return out[:3]
 
 
+def _extract_co2(ptv: dict) -> Optional[dict]:
+    """
+    CO2e du trajet à partir du bloc "emissions" de PTV (ISO 14083) :
+    {"wtw_kg": puits à la roue, "ttw_kg": réservoir à la roue}.
+    Lecture tolérante : on cherche, à n'importe quelle profondeur, les valeurs
+    numériques dont la clé contient "co2e" et "welltowheel" / "tanktowheel".
+    PTV exprime ces valeurs en kg.
+    """
+    em = ptv.get("emissions")
+    if not isinstance(em, (dict, list)):
+        return None
+    trouve = {}
+
+    def parcourir(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                kl = k.lower()
+                if isinstance(v, (int, float)) and "co2e" in kl:
+                    if "welltowheel" in kl and "wtw_kg" not in trouve:
+                        trouve["wtw_kg"] = round(float(v), 1)
+                    elif "tanktowheel" in kl and "ttw_kg" not in trouve:
+                        trouve["ttw_kg"] = round(float(v), 1)
+                else:
+                    parcourir(v)
+        elif isinstance(o, list):
+            for v in o:
+                parcourir(v)
+
+    parcourir(em)
+    return trouve or None
+
+
 def _route_payload(ptv: dict) -> dict:
     """Champs communs renvoyés par les deux endpoints de calcul."""
     distance_m, duration_s = _extract_distance_duration(ptv)
@@ -513,6 +547,7 @@ def _route_payload(ptv: dict) -> dict:
         "alerts":          _extract_alerts(ptv),
         "violated":        bool(ptv.get("violated")),
         "alternatives":    _extract_alternatives(ptv),
+        "co2":             _extract_co2(ptv),
         "distance_km":     round(distance_m / 1000, 1),
         "duration_h":      round(duration_s / 3600, 2),
         "prix_peage":      round(_extract_toll(ptv), 2),
@@ -649,7 +684,8 @@ async def _geocode(address: str) -> Optional[list]:
 
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool,
                     super_pref: bool = False, via_radius: Optional[int] = 5000,
-                    traffic: bool = True, alternatives: bool = False) -> dict:
+                    traffic: bool = True, alternatives: bool = False,
+                    co2: bool = False) -> dict:
     """
     waypoints_list : "lat,lng" pour les points classiques,
                      "combinedTransport=..." pour une traversée imposée
@@ -662,21 +698,31 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
     traffic        : True = trafic temps réel PTV (fermetures, chantiers, bouchons).
                      False = trafic moyen (trafficMode=AVERAGE) : seules les
                      restrictions permanentes et le profil véhicule comptent.
+                     Avec le trafic, PTV renvoie aussi les événements trafic et
+                     les restrictions enfreintes rencontrés sur le tracé.
     alternatives   : demande jusqu'à 3 variantes. PTV ne les calcule que pour
                      un trajet départ → arrivée sans étape ni traversée imposée.
-    En plus du tracé, PTV renvoie les événements trafic et les restrictions
-    enfreintes rencontrés sur la route. Si PTV refuse ces résultats en plus,
-    on refait l'appel avec les résultats de base pour ne jamais bloquer le calcul.
+    co2            : émissions CO2e (ISO 14083, consommation par défaut du
+                     profil) pour un camion Euro 6, la norme de la flotte.
+    Mode rapide (tout décoché) : requête identique à l'origine, aucun extra.
+    Si PTV refuse les résultats en plus, on refait l'appel avec les résultats
+    de base pour ne jamais bloquer le calcul.
     """
     base = ["POLYLINE", "TOLL_COSTS", "TOLL_SECTIONS", "BORDER_EVENTS",
             "WAYPOINT_EVENTS", "COMBINED_TRANSPORT_EVENTS"]
-    extra = ["TRAFFIC_EVENTS", "VIOLATION_EVENTS"]
+    extra = []
+    if traffic:
+        extra += ["TRAFFIC_EVENTS", "VIOLATION_EVENTS"]
     if alternatives and len(waypoints_list) == 2:
         extra.append("ALTERNATIVE_ROUTES")
+    if co2:
+        extra.append("EMISSIONS_ISO14083_2023_DEFAULT_CONSUMPTION")
     query_params = [
         ("profile", "EUR_TRAILER_TRUCK"),
         ("options[currency]", "EUR"),
     ]
+    if co2:
+        query_params.append(("vehicle[emissionStandard]", "EURO_6"))
     dernier = len(waypoints_list) - 1
     for i, wp_str in enumerate(waypoints_list):
         if wp_str.startswith("combinedTransport="):
@@ -708,7 +754,7 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
             )
 
     resp = await _get(base + extra)
-    if resp.status_code == 400:
+    if resp.status_code == 400 and extra:
         print(f"PTV 400 avec {extra}, nouvel essai sans : {resp.text[:300]}")
         resp = await _get(base)
     if resp.status_code != 200:
@@ -721,6 +767,8 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
               and not ({"border", "waypoint", "combinedTransport"} & set(e))]
     if autres:
         print(f"PTV EVENT (exemple sur {len(autres)}) : {json.dumps(autres[0])[:600]}")
+    if ptv.get("emissions"):
+        print(f"PTV EMISSIONS : {json.dumps(ptv['emissions'])[:600]}")
     if ptv.get("alternativeRoutes"):
         print(f"PTV ALTERNATIVES : {len(ptv['alternativeRoutes'])} variante(s), "
               f"clés {list(ptv['alternativeRoutes'][0])[:12]}")
@@ -922,7 +970,7 @@ async def recalculate(data: RouteRecalc):
     # Étapes posées à la main : exactes. Jalons automatiques : rayon 5 km.
     ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways, data.super_pref,
                           via_radius=None if via else 5000, traffic=data.traffic,
-                          alternatives=data.alternatives)
+                          alternatives=data.alternatives, co2=data.co2)
     payload = _route_payload(ptv)
     payload.update({
         "origin":         data.origin,
@@ -949,7 +997,7 @@ async def recalculate_drag(data: RecalcDragRequest):
         # Points déplacés ou ajoutés sur la carte : la route doit passer dessus.
         ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways,
                               via_radius=None, traffic=data.traffic,
-                              alternatives=data.alternatives)
+                              alternatives=data.alternatives, co2=data.co2)
     except HTTPException:
         raise
     except Exception as e:
