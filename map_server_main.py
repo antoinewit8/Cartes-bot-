@@ -543,11 +543,16 @@ async def _geocode(address: str) -> Optional[list]:
     return [loc["latitude"], loc["longitude"]]
 
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool,
-                    super_pref: bool = False) -> dict:
+                    super_pref: bool = False, via_radius: Optional[int] = 5000) -> dict:
     """
     waypoints_list : "lat,lng" pour les points classiques,
                      "combinedTransport=..." pour une traversée imposée
                      (jamais en première ni en dernière position).
+    via_radius     : rayon (m) des étapes intermédiaires. Avec un rayon, PTV
+                     n'a qu'à passer à moins de X m du point (étape de
+                     manipulation) : bien pour les villes-jalons automatiques,
+                     mauvais pour une étape posée à la main sur une route
+                     précise. None = étape exacte, la route passe par le point.
     """
     query_params = [
         ("profile", "EUR_TRAILER_TRUCK"),
@@ -563,8 +568,8 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
             continue
         parts = wp_str.split(",")
         lat, lng = float(parts[0].strip()), float(parts[1].strip())
-        if 0 < i < dernier:
-            query_params.append(("waypoints", f"{lat},{lng};radius=5000"))
+        if 0 < i < dernier and via_radius:
+            query_params.append(("waypoints", f"{lat},{lng};radius={int(via_radius)}"))
         else:
             query_params.append(("waypoints", f"{lat},{lng}"))
     avoid = []
@@ -778,7 +783,9 @@ async def recalculate(data: RouteRecalc):
     waypoints_list.append(f"{dest_coords[0]},{dest_coords[1]}")
     waypoints_list = _insert_ferries(waypoints_list, data.ferries)
 
-    ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways, data.super_pref)
+    # Étapes posées à la main : exactes. Jalons automatiques : rayon 5 km.
+    ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways, data.super_pref,
+                          via_radius=None if via else 5000)
     payload = _route_payload(ptv)
     payload.update({
         "origin":         data.origin,
@@ -802,7 +809,9 @@ async def recalculate_drag(data: RecalcDragRequest):
         print(f"  [{i}] {wp}")
     print("="*60)
     try:
-        ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways)
+        # Points déplacés ou ajoutés sur la carte : la route doit passer dessus.
+        ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways,
+                              via_radius=None)
     except HTTPException:
         raise
     except Exception as e:
