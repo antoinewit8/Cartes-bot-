@@ -139,6 +139,7 @@ class RouteRecalc(BaseModel):
     dest:           str
     avoid_tolls:    bool = False
     avoid_highways: bool = False
+    traffic:        bool = True     # False = ignore fermetures/bouchons en temps réel
     super_pref:     bool = False
     # Envoyés par map.html : coordonnées exactes, prioritaires sur le géocodage
     origin_coords:  Optional[List[float]] = None
@@ -155,6 +156,7 @@ class RecalcDragRequest(BaseModel):
     waypoints:      List[WaypointItem]
     avoid_tolls:    bool = False
     avoid_highways: bool = False
+    traffic:        bool = True     # False = ignore fermetures/bouchons en temps réel
     super_pref:     bool = False
     route_id:       Optional[str] = None
     ferries:        List[str] = []
@@ -543,7 +545,8 @@ async def _geocode(address: str) -> Optional[list]:
     return [loc["latitude"], loc["longitude"]]
 
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool,
-                    super_pref: bool = False, via_radius: Optional[int] = 5000) -> dict:
+                    super_pref: bool = False, via_radius: Optional[int] = 5000,
+                    traffic: bool = True) -> dict:
     """
     waypoints_list : "lat,lng" pour les points classiques,
                      "combinedTransport=..." pour une traversée imposée
@@ -553,6 +556,9 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
                      manipulation) : bien pour les villes-jalons automatiques,
                      mauvais pour une étape posée à la main sur une route
                      précise. None = étape exacte, la route passe par le point.
+    traffic        : True = trafic temps réel PTV (fermetures, chantiers, bouchons).
+                     False = trafic moyen (trafficMode=AVERAGE) : seules les
+                     restrictions permanentes et le profil véhicule comptent.
     """
     query_params = [
         ("profile", "EUR_TRAILER_TRUCK"),
@@ -577,6 +583,8 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
     if avoid_highways:            avoid.append("HIGHWAYS")
     if avoid:
         query_params.append(("options[avoid]", ",".join(avoid)))
+    if not traffic:
+        query_params.append(("options[trafficMode]", "AVERAGE"))
     print(f"PTV QUERY: {query_params}")
     async with httpx.AsyncClient() as client:
         resp = await client.get(
@@ -785,7 +793,7 @@ async def recalculate(data: RouteRecalc):
 
     # Étapes posées à la main : exactes. Jalons automatiques : rayon 5 km.
     ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways, data.super_pref,
-                          via_radius=None if via else 5000)
+                          via_radius=None if via else 5000, traffic=data.traffic)
     payload = _route_payload(ptv)
     payload.update({
         "origin":         data.origin,
@@ -811,7 +819,7 @@ async def recalculate_drag(data: RecalcDragRequest):
     try:
         # Points déplacés ou ajoutés sur la carte : la route doit passer dessus.
         ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways,
-                              via_radius=None)
+                              via_radius=None, traffic=data.traffic)
     except HTTPException:
         raise
     except Exception as e:
