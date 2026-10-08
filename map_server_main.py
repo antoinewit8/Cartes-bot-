@@ -140,6 +140,7 @@ class RouteRecalc(BaseModel):
     avoid_tolls:    bool = False
     avoid_highways: bool = False
     traffic:        bool = True     # False = ignore fermetures/bouchons en temps réel
+    alternatives:   bool = True     # variantes PTV (seulement départ → arrivée sans étape)
     super_pref:     bool = False
     # Envoyés par map.html : coordonnées exactes, prioritaires sur le géocodage
     origin_coords:  Optional[List[float]] = None
@@ -157,6 +158,7 @@ class RecalcDragRequest(BaseModel):
     avoid_tolls:    bool = False
     avoid_highways: bool = False
     traffic:        bool = True     # False = ignore fermetures/bouchons en temps réel
+    alternatives:   bool = True     # variantes PTV (seulement départ → arrivée sans étape)
     super_pref:     bool = False
     route_id:       Optional[str] = None
     ferries:        List[str] = []
@@ -405,11 +407,112 @@ def _decode_polyline(encoded: str) -> list:
     return coords
 
 
+def _texte_event(sub: dict) -> str:
+    """Libellé lisible d'un événement trafic / restriction PTV."""
+    for cle in ("description", "message", "text", "reason"):
+        v = sub.get(cle)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, dict):   # description localisée {"text": ...}
+            t = v.get("text") or v.get("value")
+            if isinstance(t, str) and t.strip():
+                return t.strip()
+    return ""
+
+
+def _extract_alerts(ptv: dict) -> list:
+    """
+    Événements trafic (TRAFFIC_EVENTS) et restrictions enfreintes
+    (VIOLATION_EVENTS) rencontrés SUR le tracé :
+      [{"kind": "traffic"|"violation", "lat", "lng", "km", "title", "detail"}]
+    Lecture tolérante : comme pour "border" ou "combinedTransport", PTV range
+    le détail dans un sous-objet dont le nom contient traffic / violation.
+    Les événements EXIT sont ignorés (doublon de l'ENTER).
+    """
+    alerts = []
+    for e in ptv.get("events") or []:
+        if not isinstance(e, dict):
+            continue
+        kind, sub = None, None
+        for k, v in e.items():
+            kl = k.lower()
+            if isinstance(v, dict) and ("traffic" in kl or "violation" in kl):
+                kind, sub = ("traffic" if "traffic" in kl else "violation"), v
+                break
+        if not kind:
+            continue
+        if str(sub.get("accessType") or e.get("accessType") or "").upper() == "EXIT":
+            continue
+        lat, lng = e.get("latitude"), e.get("longitude")
+        if lat is None or lng is None:
+            pos = e.get("position") or sub.get("position") or {}
+            lat, lng = pos.get("latitude"), pos.get("longitude")
+        if lat is None or lng is None:
+            continue
+
+        details = []
+        if kind == "traffic":
+            delay = sub.get("delay")
+            if isinstance(delay, (int, float)) and delay > 0:
+                details.append(f"retard {round(delay / 60)} min")
+            length = sub.get("length")
+            if isinstance(length, (int, float)) and length > 0:
+                details.append(f"sur {length / 1000:.1f} km")
+            titre = _texte_event(sub) or "Événement trafic"
+        else:
+            vtype = str(sub.get("type") or "").upper()
+            titre = {
+                "PROHIBITED":          "Passage interdit",
+                "DELIVERY_ONLY":       "Accès desserte uniquement",
+                "RESTRICTED_ACCESS":   "Accès restreint",
+                "VEHICLE_PROPERTY":    "Restriction gabarit / poids",
+                "COMBINED_TRANSPORT":  "Traversée non autorisée",
+                "SCHEDULE":            "Horaire non respecté",
+                "BLOCKED_ROAD_BY_INTERSECTION": "Route bloquée",
+            }.get(vtype, "Restriction enfreinte")
+            prop = sub.get("vehicleProperty") or sub.get("property")
+            if prop:
+                details.append(str(prop))
+            txt = _texte_event(sub)
+            if txt:
+                details.append(txt)
+        km = e.get("distanceFromStart")
+        alerts.append({
+            "kind":   kind,
+            "lat":    float(lat),
+            "lng":    float(lng),
+            "km":     round(km / 1000, 1) if isinstance(km, (int, float)) else None,
+            "title":  titre,
+            "detail": " · ".join(details),
+        })
+    return alerts[:40]
+
+
+def _extract_alternatives(ptv: dict) -> list:
+    """Variantes PTV (ALTERNATIVE_ROUTES) : [{distance_km, duration_h, polyline}]."""
+    brut = ptv.get("alternativeRoutes") or ptv.get("alternatives") or []
+    out = []
+    for alt in brut if isinstance(brut, list) else []:
+        if not isinstance(alt, dict):
+            continue
+        poly = _extract_polyline(alt)
+        if len(poly) < 2:
+            continue
+        d_m, t_s = _extract_distance_duration(alt)
+        out.append({"distance_km": round(d_m / 1000, 1),
+                    "duration_h":  round(t_s / 3600, 2),
+                    "polyline":    poly})
+    return out[:3]
+
+
 def _route_payload(ptv: dict) -> dict:
     """Champs communs renvoyés par les deux endpoints de calcul."""
     distance_m, duration_s = _extract_distance_duration(ptv)
     crossings = _extract_crossings(ptv)
     return {
+        "alerts":          _extract_alerts(ptv),
+        "violated":        bool(ptv.get("violated")),
+        "alternatives":    _extract_alternatives(ptv),
         "distance_km":     round(distance_m / 1000, 1),
         "duration_h":      round(duration_s / 3600, 2),
         "prix_peage":      round(_extract_toll(ptv), 2),
@@ -546,7 +649,7 @@ async def _geocode(address: str) -> Optional[list]:
 
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool,
                     super_pref: bool = False, via_radius: Optional[int] = 5000,
-                    traffic: bool = True) -> dict:
+                    traffic: bool = True, alternatives: bool = False) -> dict:
     """
     waypoints_list : "lat,lng" pour les points classiques,
                      "combinedTransport=..." pour une traversée imposée
@@ -559,11 +662,19 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
     traffic        : True = trafic temps réel PTV (fermetures, chantiers, bouchons).
                      False = trafic moyen (trafficMode=AVERAGE) : seules les
                      restrictions permanentes et le profil véhicule comptent.
+    alternatives   : demande jusqu'à 3 variantes. PTV ne les calcule que pour
+                     un trajet départ → arrivée sans étape ni traversée imposée.
+    En plus du tracé, PTV renvoie les événements trafic et les restrictions
+    enfreintes rencontrés sur la route. Si PTV refuse ces résultats en plus,
+    on refait l'appel avec les résultats de base pour ne jamais bloquer le calcul.
     """
+    base = ["POLYLINE", "TOLL_COSTS", "TOLL_SECTIONS", "BORDER_EVENTS",
+            "WAYPOINT_EVENTS", "COMBINED_TRANSPORT_EVENTS"]
+    extra = ["TRAFFIC_EVENTS", "VIOLATION_EVENTS"]
+    if alternatives and len(waypoints_list) == 2:
+        extra.append("ALTERNATIVE_ROUTES")
     query_params = [
         ("profile", "EUR_TRAILER_TRUCK"),
-        ("results", "POLYLINE,TOLL_COSTS,TOLL_SECTIONS,BORDER_EVENTS,"
-                    "WAYPOINT_EVENTS,COMBINED_TRANSPORT_EVENTS"),
         ("options[currency]", "EUR"),
     ]
     dernier = len(waypoints_list) - 1
@@ -585,18 +696,35 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
         query_params.append(("options[avoid]", ",".join(avoid)))
     if not traffic:
         query_params.append(("options[trafficMode]", "AVERAGE"))
-    print(f"PTV QUERY: {query_params}")
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            PTV_ROUTING_URL,
-            headers={"apiKey": PTV_API_KEY},
-            params=query_params,
-            timeout=30,
-        )
+    async def _get(results: list):
+        params = query_params + [("results", ",".join(results))]
+        print(f"PTV QUERY: {params}")
+        async with httpx.AsyncClient() as client:
+            return await client.get(
+                PTV_ROUTING_URL,
+                headers={"apiKey": PTV_API_KEY},
+                params=params,
+                timeout=30,
+            )
+
+    resp = await _get(base + extra)
+    if resp.status_code == 400:
+        print(f"PTV 400 avec {extra}, nouvel essai sans : {resp.text[:300]}")
+        resp = await _get(base)
     if resp.status_code != 200:
         print(f"PTV ERROR {resp.status_code}: {resp.text[:1000]}")
         raise HTTPException(502, f"PTV error {resp.status_code}: {resp.text[:500]}")
-    return resp.json()
+    ptv = resp.json()
+    # Trace de contrôle : forme réelle des événements trafic / restriction
+    # et des variantes, pour vérifier la lecture dans les logs Render.
+    autres = [e for e in (ptv.get("events") or []) if isinstance(e, dict)
+              and not ({"border", "waypoint", "combinedTransport"} & set(e))]
+    if autres:
+        print(f"PTV EVENT (exemple sur {len(autres)}) : {json.dumps(autres[0])[:600]}")
+    if ptv.get("alternativeRoutes"):
+        print(f"PTV ALTERNATIVES : {len(ptv['alternativeRoutes'])} variante(s), "
+              f"clés {list(ptv['alternativeRoutes'][0])[:12]}")
+    return ptv
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -793,7 +921,8 @@ async def recalculate(data: RouteRecalc):
 
     # Étapes posées à la main : exactes. Jalons automatiques : rayon 5 km.
     ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways, data.super_pref,
-                          via_radius=None if via else 5000, traffic=data.traffic)
+                          via_radius=None if via else 5000, traffic=data.traffic,
+                          alternatives=data.alternatives)
     payload = _route_payload(ptv)
     payload.update({
         "origin":         data.origin,
@@ -819,7 +948,8 @@ async def recalculate_drag(data: RecalcDragRequest):
     try:
         # Points déplacés ou ajoutés sur la carte : la route doit passer dessus.
         ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways,
-                              via_radius=None, traffic=data.traffic)
+                              via_radius=None, traffic=data.traffic,
+                              alternatives=data.alternatives)
     except HTTPException:
         raise
     except Exception as e:
