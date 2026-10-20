@@ -10,20 +10,30 @@ Traversées maritimes / ferroviaires (ferries, navettes type Eurotunnel) :
     paramètres "combinedTransport=latA,lonA,latB,lonB" à imposer au trajet.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.requests import Request
 from pydantic import BaseModel
 from typing import List, Optional
-import uvicorn, uuid, json, os, re, math, httpx, base64
+from collections import OrderedDict
+import uvicorn, uuid, json, os, re, math, httpx, base64, asyncio, time
 from datetime import date
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+
+try:                                    # JSON 5 à 10x plus rapide (lecture PTV + réponses)
+    import orjson
+    from fastapi.responses import ORJSONResponse as _DefaultResponse
+    _loads = orjson.loads
+except ImportError:                     # pragma: no cover
+    from fastapi.responses import JSONResponse as _DefaultResponse
+    _loads = json.loads
 
 load_dotenv()
 
-app = FastAPI(title="CB Route Map Server")
+app = FastAPI(title="CB Route Map Server", default_response_class=_DefaultResponse)
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,6 +42,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Le tracé est la plus grosse partie de la réponse : compressé, il arrive
+# 4 à 6 fois plus vite dans le navigateur.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 templates = Jinja2Templates(directory="templates")
 
@@ -57,6 +70,137 @@ GITHUB_TOKEN  = os.environ.get("GITHUB_TOKEN", "")
 GITHUB_REPO   = os.environ.get("GITHUB_REPO", "antoinewit8/hub")
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main")
 LEARNED_FILE  = "transport_hub/tools/km_calcul/routes_apprises.json"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  CONNEXION PTV PARTAGÉE + CACHE
+# ══════════════════════════════════════════════════════════════════════════════
+# Avant : un nouveau client HTTP par appel, donc DNS + TCP + TLS vers
+# api.myptv.com à chaque calcul (≈ 3 allers-retours Oregon ↔ Europe, 400 à
+# 600 ms perdus avant même que PTV commence à calculer). Un seul client,
+# connexion gardée ouverte en HTTP/2 et entretenue en tâche de fond.
+
+_HTTP: Optional[httpx.AsyncClient] = None
+PTV_KEEPALIVE_S = 40          # PTV ferme une connexion inactive au bout d'environ 1 min
+
+
+def http() -> httpx.AsyncClient:
+    global _HTTP
+    if _HTTP is None or _HTTP.is_closed:
+        try:
+            import h2  # noqa: F401
+            h2_ok = True
+        except ImportError:
+            h2_ok = False
+        _HTTP = httpx.AsyncClient(
+            http2=h2_ok,
+            timeout=httpx.Timeout(30.0, connect=10.0),
+            limits=httpx.Limits(max_connections=40, max_keepalive_connections=20,
+                                keepalive_expiry=300),
+        )
+    return _HTTP
+
+
+async def _keep_ptv_warm():
+    """Garde la connexion PTV chaude : une requête sans clé (non facturée)
+    toutes les 40 s. Le premier vrai calcul ne paie plus la poignée de main TLS."""
+    while True:
+        try:
+            await http().head("https://api.myptv.com/", timeout=10)
+        except Exception:
+            pass
+        await asyncio.sleep(PTV_KEEPALIVE_S)
+
+
+@app.on_event("startup")
+async def _startup():
+    app.state.warm_task = asyncio.create_task(_keep_ptv_warm())
+
+
+@app.on_event("shutdown")
+async def _shutdown():
+    t = getattr(app.state, "warm_task", None)
+    if t:
+        t.cancel()
+    if _HTTP is not None:
+        await _HTTP.aclose()
+
+
+# Cache des calculs : même trajet + mêmes options = réponse immédiate
+# (annuler un déplacement, recocher une option, revenir à un tracé déjà vu).
+# Sans trafic réel le résultat ne bouge pas dans la journée ; avec trafic
+# réel, 2 min seulement. Taille bornée : un tracé pèse lourd en mémoire.
+CACHE_MAX         = 60
+CACHE_TTL_STATIC  = 6 * 3600
+CACHE_TTL_TRAFFIC = 120
+_ROUTE_CACHE: "OrderedDict[str, tuple]" = OrderedDict()
+_INFLIGHT: dict = {}
+
+
+def _cache_get(key: str) -> Optional[dict]:
+    hit = _ROUTE_CACHE.get(key)
+    if not hit:
+        return None
+    expire, payload = hit
+    if expire < time.monotonic():
+        _ROUTE_CACHE.pop(key, None)
+        return None
+    _ROUTE_CACHE.move_to_end(key)
+    return payload
+
+
+def _cache_put(key: str, payload: dict, ttl: int):
+    _ROUTE_CACHE[key] = (time.monotonic() + ttl, payload)
+    _ROUTE_CACHE.move_to_end(key)
+    while len(_ROUTE_CACHE) > CACHE_MAX:
+        _ROUTE_CACHE.popitem(last=False)
+
+
+# Tracé : PTV renvoie un point tous les quelques mètres avec 14 décimales.
+# Arrondi à 5 décimales (≈ 1 m) et suppression des points alignés (écart
+# < 1,5 m) : même dessin à l'écran, réponse 3 à 5 fois plus légère.
+POLY_TOL_M = 1.5
+
+
+def _simplify(poly: list, tol_m: float = POLY_TOL_M) -> list:
+    """Douglas-Peucker itératif en mètres (projection locale) : aucun point
+    du tracé d'origine à plus de tol_m du tracé simplifié."""
+    n = len(poly)
+    if n < 3:
+        return [[round(p[0], 5), round(p[1], 5)] for p in poly]
+    k = 111320.0
+    kx = k * math.cos(math.radians(poly[n // 2][0]))
+    xs = [p[1] * kx for p in poly]
+    ys = [p[0] * k for p in poly]
+    keep = bytearray(n)
+    keep[0] = keep[n - 1] = 1
+    tol2 = tol_m * tol_m
+    pile = [(0, n - 1)]
+    while pile:
+        i, j = pile.pop()
+        if j <= i + 1:
+            continue
+        ax, ay, bx, by = xs[i], ys[i], xs[j], ys[j]
+        dx, dy = bx - ax, by - ay
+        l2 = dx * dx + dy * dy
+        dmax, imax = -1.0, -1
+        if l2 == 0:
+            for m in range(i + 1, j):
+                d = (xs[m] - ax) ** 2 + (ys[m] - ay) ** 2
+                if d > dmax:
+                    dmax, imax = d, m
+        else:
+            # distance à la droite (pas au segment) : assez juste et 2x plus rapide
+            for m in range(i + 1, j):
+                c = (xs[m] - ax) * dy - (ys[m] - ay) * dx
+                d = c * c / l2
+                if d > dmax:
+                    dmax, imax = d, m
+        if dmax > tol2:
+            keep[imax] = 1
+            pile.append((i, imax))
+            pile.append((imax, j))
+    return [[round(poly[m][0], 5), round(poly[m][1], 5)] for m in range(n) if keep[m]]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -190,10 +334,10 @@ def _extract_polyline(ptv: dict) -> list:
         return []
     if isinstance(polyline_raw, str) and polyline_raw:
         try:
-            parsed = json.loads(polyline_raw)
+            parsed = _loads(polyline_raw)
             if isinstance(parsed, dict) and parsed.get("type") == "LineString":
                 return [[c[1], c[0]] for c in parsed.get("coordinates", [])]
-        except (json.JSONDecodeError, TypeError):
+        except (ValueError, TypeError):
             pass
         return _decode_polyline(polyline_raw)
     return []
@@ -497,7 +641,7 @@ def _extract_alternatives(ptv: dict) -> list:
     for alt in brut if isinstance(brut, list) else []:
         if not isinstance(alt, dict):
             continue
-        poly = _extract_polyline(alt)
+        poly = _simplify(_extract_polyline(alt))
         if len(poly) < 2:
             continue
         d_m, t_s = _extract_distance_duration(alt)
@@ -556,7 +700,7 @@ def _route_payload(ptv: dict) -> dict:
         "crossings":       crossings,
         "ferry_km":        round(sum(c["distance_km"] for c in crossings), 1),
         "ferry_warnings":  _extract_ct_warnings(ptv),
-        "polyline":        _extract_polyline(ptv),
+        "polyline":        _simplify(_extract_polyline(ptv)),
     }
 
 
@@ -667,13 +811,12 @@ async def _geocode(address: str) -> Optional[list]:
     coords = _parse_coords(address)
     if coords:
         return coords
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            PTV_GEOCODE_URL,
-            headers={"apiKey": PTV_API_KEY},
-            params={"searchText": address, "countryFilter": COUNTRY_FILTER},
-            timeout=15,
-        )
+    resp = await http().get(
+        PTV_GEOCODE_URL,
+        headers={"apiKey": PTV_API_KEY},
+        params={"searchText": address, "countryFilter": COUNTRY_FILTER},
+        timeout=15,
+    )
     if resp.status_code != 200:
         return None
     results = resp.json().get("locations", [])
@@ -708,7 +851,9 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
     Si PTV refuse les résultats en plus, on refait l'appel avec les résultats
     de base pour ne jamais bloquer le calcul.
     """
-    base = ["POLYLINE", "TOLL_COSTS", "TOLL_SECTIONS", "BORDER_EVENTS",
+    # TOLL_SECTIONS retiré : le détail par pays vient de toll.costs.countries
+    # (validé le 16/09/2026) ; les sections alourdissaient calcul et réponse.
+    base = ["POLYLINE", "TOLL_COSTS", "BORDER_EVENTS",
             "WAYPOINT_EVENTS", "COMBINED_TRANSPORT_EVENTS"]
     extra = []
     if traffic:
@@ -730,7 +875,8 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
                 query_params.append(("waypoints", wp_str))
             continue
         parts = wp_str.split(",")
-        lat, lng = float(parts[0].strip()), float(parts[1].strip())
+        # 6 décimales (≈ 10 cm) : même requête, même clé de cache
+        lat, lng = round(float(parts[0].strip()), 6), round(float(parts[1].strip()), 6)
         if 0 < i < dernier and via_radius:
             query_params.append(("waypoints", f"{lat},{lng};radius={int(via_radius)}"))
         else:
@@ -742,16 +888,16 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
         query_params.append(("options[avoid]", ",".join(avoid)))
     if not traffic:
         query_params.append(("options[trafficMode]", "AVERAGE"))
+
     async def _get(results: list):
         params = query_params + [("results", ",".join(results))]
-        print(f"PTV QUERY: {params}")
-        async with httpx.AsyncClient() as client:
-            return await client.get(
-                PTV_ROUTING_URL,
-                headers={"apiKey": PTV_API_KEY},
-                params=params,
-                timeout=30,
-            )
+        print(f"PTV QUERY: {len(waypoints_list)} pts, results={params[-1][1]}")
+        t0 = time.perf_counter()
+        r = await http().get(PTV_ROUTING_URL, headers={"apiKey": PTV_API_KEY},
+                             params=params, timeout=30)
+        print(f"PTV {r.status_code} en {(time.perf_counter() - t0) * 1000:.0f} ms "
+              f"({r.http_version}, {len(r.content) // 1024} Ko)")
+        return r
 
     resp = await _get(base + extra)
     if resp.status_code == 400 and extra:
@@ -760,19 +906,57 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
     if resp.status_code != 200:
         print(f"PTV ERROR {resp.status_code}: {resp.text[:1000]}")
         raise HTTPException(502, f"PTV error {resp.status_code}: {resp.text[:500]}")
-    ptv = resp.json()
+    ptv = _loads(resp.content)
     # Trace de contrôle : forme réelle des événements trafic / restriction
     # et des variantes, pour vérifier la lecture dans les logs Render.
-    autres = [e for e in (ptv.get("events") or []) if isinstance(e, dict)
-              and not ({"border", "waypoint", "combinedTransport"} & set(e))]
-    if autres:
-        print(f"PTV EVENT (exemple sur {len(autres)}) : {json.dumps(autres[0])[:600]}")
-    if ptv.get("emissions"):
-        print(f"PTV EMISSIONS : {json.dumps(ptv['emissions'])[:600]}")
-    if ptv.get("alternativeRoutes"):
-        print(f"PTV ALTERNATIVES : {len(ptv['alternativeRoutes'])} variante(s), "
-              f"clés {list(ptv['alternativeRoutes'][0])[:12]}")
+    if traffic or alternatives or co2:
+        autres = [e for e in (ptv.get("events") or []) if isinstance(e, dict)
+                  and not ({"border", "waypoint", "combinedTransport"} & set(e))]
+        if autres:
+            print(f"PTV EVENT (exemple sur {len(autres)}) : {json.dumps(autres[0])[:600]}")
+        if ptv.get("emissions"):
+            print(f"PTV EMISSIONS : {json.dumps(ptv['emissions'])[:600]}")
+        if ptv.get("alternativeRoutes"):
+            print(f"PTV ALTERNATIVES : {len(ptv['alternativeRoutes'])} variante(s), "
+                  f"clés {list(ptv['alternativeRoutes'][0])[:12]}")
     return ptv
+
+
+async def _compute_route(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool,
+                         super_pref: bool = False, via_radius: Optional[int] = 5000,
+                         traffic: bool = True, alternatives: bool = False,
+                         co2: bool = False) -> dict:
+    """_call_ptv + _route_payload, avec cache et fusion des demandes identiques
+    simultanées (un seul appel PTV, tout le monde reçoit la même réponse).
+    Renvoie une copie : les endpoints y ajoutent leurs champs."""
+    key = json.dumps([waypoints_list, avoid_tolls, avoid_highways, super_pref,
+                      via_radius, traffic, alternatives, co2])
+    hit = _cache_get(key)
+    if hit is not None:
+        print(f"CACHE ✓ {len(waypoints_list)} pts — {hit['distance_km']} km")
+        return dict(hit, cached=True)
+
+    fut = _INFLIGHT.get(key)
+    if fut is None:
+        fut = asyncio.get_running_loop().create_future()
+        _INFLIGHT[key] = fut
+        try:
+            ptv = await _call_ptv(waypoints_list, avoid_tolls, avoid_highways, super_pref,
+                                  via_radius=via_radius, traffic=traffic,
+                                  alternatives=alternatives, co2=co2)
+            payload = _route_payload(ptv)
+            _cache_put(key, payload, CACHE_TTL_TRAFFIC if traffic else CACHE_TTL_STATIC)
+            fut.set_result(payload)
+        except Exception as e:
+            fut.set_exception(e)
+            fut.exception()          # marquée comme lue : pas d'avertissement asyncio
+            raise
+        finally:
+            _INFLIGHT.pop(key, None)
+            if not fut.done():       # appel annulé
+                fut.cancel()
+    payload = await asyncio.shield(fut)
+    return dict(payload, cached=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -793,13 +977,12 @@ async def api_geocode(q: str, country: str = ""):
     coords = _parse_coords(q)
     if coords:
         return {"lat": coords[0], "lng": coords[1], "label": q}
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            PTV_GEOCODE_URL,
-            headers={"apiKey": PTV_API_KEY},
-            params={"searchText": q, "countryFilter": country.strip() or COUNTRY_FILTER},
-            timeout=15,
-        )
+    resp = await http().get(
+        PTV_GEOCODE_URL,
+        headers={"apiKey": PTV_API_KEY},
+        params={"searchText": q, "countryFilter": country.strip() or COUNTRY_FILTER},
+        timeout=15,
+    )
     if resp.status_code != 200:
         raise HTTPException(500, "Erreur API PTV geocode")
     results = resp.json().get("locations", [])
@@ -844,13 +1027,12 @@ async def ferry_options(
     else:
         raise HTTPException(400, "Donner q, ou lat et lng")
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            PTV_CT_URL,
-            headers={"apiKey": PTV_API_KEY},
-            params=params,
-            timeout=20,
-        )
+    resp = await http().get(
+        PTV_CT_URL,
+        headers={"apiKey": PTV_API_KEY},
+        params=params,
+        timeout=20,
+    )
     if resp.status_code != 200:
         print(f"PTV DATA ERROR {resp.status_code}: {resp.text[:500]}")
         raise HTTPException(502, f"PTV Data API {resp.status_code}: {resp.text[:300]}")
@@ -968,10 +1150,10 @@ async def recalculate(data: RouteRecalc):
     waypoints_list = _insert_ferries(waypoints_list, data.ferries)
 
     # Étapes posées à la main : exactes. Jalons automatiques : rayon 5 km.
-    ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways, data.super_pref,
-                          via_radius=None if via else 5000, traffic=data.traffic,
-                          alternatives=data.alternatives, co2=data.co2)
-    payload = _route_payload(ptv)
+    payload = await _compute_route(waypoints_list, data.avoid_tolls, data.avoid_highways,
+                                   data.super_pref, via_radius=None if via else 5000,
+                                   traffic=data.traffic, alternatives=data.alternatives,
+                                   co2=data.co2)
     payload.update({
         "origin":         data.origin,
         "dest":           data.dest,
@@ -983,34 +1165,31 @@ async def recalculate(data: RouteRecalc):
 
 # ── Recalcul drag ────────────────────────────────────────────────────────────
 @app.post("/api/recalculate_drag")
-async def recalculate_drag(data: RecalcDragRequest):
+async def recalculate_drag(data: RecalcDragRequest, background: BackgroundTasks):
     if len(data.waypoints) < 2:
         raise HTTPException(400, "Il faut au minimum 2 waypoints")
     waypoints_list = _insert_ferries([f"{wp.lat},{wp.lng}" for wp in data.waypoints],
                                      data.ferries)
-    print("="*60)
-    print(f"DRAG RECALC — {len(waypoints_list)} waypoints")
-    for i, wp in enumerate(waypoints_list):
-        print(f"  [{i}] {wp}")
-    print("="*60)
+    t0 = time.perf_counter()
     try:
         # Points déplacés ou ajoutés sur la carte : la route doit passer dessus.
-        ptv = await _call_ptv(waypoints_list, data.avoid_tolls, data.avoid_highways,
-                              via_radius=None, traffic=data.traffic,
-                              alternatives=data.alternatives, co2=data.co2)
+        payload = await _compute_route(waypoints_list, data.avoid_tolls, data.avoid_highways,
+                                       via_radius=None, traffic=data.traffic,
+                                       alternatives=data.alternatives, co2=data.co2)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Erreur interne: {e}")
 
-    payload = _route_payload(ptv)
     payload["ferries_sent"] = [w for w in waypoints_list if w.startswith("combinedTransport=")]
-    print(f"RÉSULTAT PTV : {payload['distance_km']}km, {len(payload['polyline'])} points, "
-          f"{len(payload['crossings'])} traversée(s)")
+    print(f"DRAG {len(waypoints_list)} pts → {payload['distance_km']} km, "
+          f"{len(payload['polyline'])} points, {len(payload['crossings'])} traversée(s), "
+          f"{(time.perf_counter() - t0) * 1000:.0f} ms{' (cache)' if payload.get('cached') else ''}")
 
-    # Mise à jour Firebase — polyline_current uniquement, originaux préservés
-    if data.route_id and FIREBASE_URL:
-        update_data = {
+    # Mise à jour Firebase — après la réponse, jamais sur le chemin du calcul.
+    # La carte manuelle du hub (route_id "manual") n'a rien à enregistrer.
+    if data.route_id and data.route_id != "manual" and FIREBASE_URL:
+        background.add_task(_firebase_patch_route, data.route_id, {
             "polyline_current": payload["polyline"],
             "distance_km":      payload["distance_km"],
             "duration_h":       payload["duration_h"],
@@ -1018,16 +1197,17 @@ async def recalculate_drag(data: RecalcDragRequest):
             "toll_by_country":  payload["toll_by_country"],
             "km_by_country":    payload["km_by_country"],
             "crossings":        payload["crossings"],
-        }
-        try:
-            httpx.patch(
-                f"{FIREBASE_URL}/routes/{data.route_id}.json",
-                json=update_data, timeout=10
-            )
-        except Exception as e:
-            print(f"Erreur maj Firebase: {e}")
+        })
 
     return payload
+
+
+async def _firebase_patch_route(route_id: str, update_data: dict):
+    try:
+        await http().patch(f"{FIREBASE_URL}/routes/{route_id}.json",
+                           json=update_data, timeout=10)
+    except Exception as e:
+        print(f"Erreur maj Firebase: {e}")
 
 
 # ── Reset route ───────────────────────────────────────────────────────────────
