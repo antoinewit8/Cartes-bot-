@@ -130,8 +130,8 @@ async def _shutdown():
 # (annuler un déplacement, recocher une option, revenir à un tracé déjà vu).
 # Sans trafic réel le résultat ne bouge pas dans la journée ; avec trafic
 # réel, 2 min seulement. Taille bornée : un tracé pèse lourd en mémoire.
-CACHE_MAX         = 60
-CACHE_TTL_STATIC  = 6 * 3600
+CACHE_MAX         = 300            # ~15 Mo : la carte manuelle pré-calcule aussi les suggestions
+CACHE_TTL_STATIC  = 24 * 3600
 CACHE_TTL_TRAFFIC = 120
 _ROUTE_CACHE: "OrderedDict[str, tuple]" = OrderedDict()
 _INFLIGHT: dict = {}
@@ -941,10 +941,12 @@ async def _compute_route(waypoints_list: list, avoid_tolls: bool, avoid_highways
         fut = asyncio.get_running_loop().create_future()
         _INFLIGHT[key] = fut
         try:
+            t0 = time.perf_counter()
             ptv = await _call_ptv(waypoints_list, avoid_tolls, avoid_highways, super_pref,
                                   via_radius=via_radius, traffic=traffic,
                                   alternatives=alternatives, co2=co2)
             payload = _route_payload(ptv)
+            payload["ptv_ms"] = round((time.perf_counter() - t0) * 1000)   # affiché dans la console de la carte
             _cache_put(key, payload, CACHE_TTL_TRAFFIC if traffic else CACHE_TTL_STATIC)
             fut.set_result(payload)
         except Exception as e:

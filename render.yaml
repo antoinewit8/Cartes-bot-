@@ -1,0 +1,28 @@
+# Plan Render (Blueprint) : le serveur carte en Europe.
+# Render ne change pas la région d'un service existant : ce fichier crée un NOUVEAU
+# service « cartes-bot-fra » à Francfort, à côté de PTV (Karlsruhe) et des utilisateurs.
+# Gain attendu : ~150 ms par aller-retour navigateur ↔ serveur et serveur ↔ PTV,
+# soit ~0,3 s par calcul, et un réveil plus court.
+# Render : New → Blueprint → ce dépôt. Les variables marquées sync: false sont demandées
+# à la création : reprendre les valeurs du service actuel (onglet Environment).
+services:
+  - type: web
+    name: cartes-bot-fra
+    runtime: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn map_server_main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PTV_API_KEY
+        sync: false
+      - key: FIREBASE_URL
+        sync: false
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GITHUB_REPO
+        sync: false
+      - key: MAP_SERVER_URL
+        sync: false
