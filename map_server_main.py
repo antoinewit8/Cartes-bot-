@@ -287,6 +287,10 @@ class RouteRecalc(BaseModel):
     alternatives:   bool = False    # variantes PTV (seulement départ → arrivée sans étape)
     co2:            bool = False    # émissions CO2e ISO 14083, camion Euro 6
     super_pref:     bool = False
+    eta:            bool = False    # ETA client : pauses et repos UE (561/2006) + heures d'arrivée
+    start_time:     Optional[str] = None   # "2026-10-28T08:30", heure locale du départ
+    team:           bool = False    # double équipage (pas de pause, repos allongés)
+    service_min:    int  = 0        # arrêt (chargement / déchargement) à chaque étape, en minutes
     # Envoyés par map.html : coordonnées exactes, prioritaires sur le géocodage
     origin_coords:  Optional[List[float]] = None
     dest_coords:    Optional[List[float]] = None
@@ -308,6 +312,10 @@ class RecalcDragRequest(BaseModel):
     super_pref:     bool = False
     route_id:       Optional[str] = None
     ferries:        List[str] = []
+    eta:            bool = False    # ETA client : pauses et repos UE (561/2006) + heures d'arrivée
+    start_time:     Optional[str] = None   # "2026-10-28T08:30", heure locale du départ
+    team:           bool = False    # double équipage (pas de pause, repos allongés)
+    service_min:    int  = 0        # arrêt (chargement / déchargement) à chaque étape, en minutes
 
 class SaveReferenceRequest(BaseModel):
     origin:    str
@@ -682,6 +690,74 @@ def _extract_co2(ptv: dict) -> Optional[dict]:
     parcourir(em)
     return trouve or None
 
+_START_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?([+-]\d{2}:\d{2}|Z)?$")
+
+
+def _eta_opts(data) -> Optional[dict]:
+    """Options ETA d'une requête, None si l'ETA n'est pas demandée.
+    start_time sans décalage = heure locale du point de départ (règle PTV)."""
+    if not getattr(data, "eta", False):
+        return None
+    st = (data.start_time or "").strip()
+    if st and not _START_RE.match(st):
+        raise HTTPException(400, f"Heure de départ illisible : {st!r} (attendu 2026-10-28T08:30)")
+    if st and len(st) == 16:
+        st += ":00"
+    return {"start_time": st or None, "team": bool(data.team),
+            "service_s": max(0, min(int(data.service_min or 0), 24 * 60)) * 60}
+
+
+def _extract_eta(ptv: dict) -> Optional[dict]:
+    """
+    Résultat ETA (calcul POST avec temps de conduite) :
+      start / end    : heures de départ et d'arrivée (RFC 3339, heure locale du lieu)
+      driving_s, break_s, rest_s, service_s, waiting_s, travel_s
+      stops          : [{"name": "D" | "E1"… | "A", "at", "km"}] — heure d'arrivée à chaque arrêt
+      pauses         : [{"type": "BREAK" | "DAILY_REST", "at", "duration_s", "km",
+                         "lat", "lng", "pendant_arret"}]
+    None si PTV n'a pas renvoyé de scheduleReport (ETA non demandée).
+    """
+    rep = ptv.get("scheduleReport")
+    if not isinstance(rep, dict):
+        return None
+    stops, pauses = [], []
+    for e in ptv.get("events") or []:
+        if not isinstance(e, dict):
+            continue
+        km = e.get("distanceFromStart")
+        km = round(km / 1000, 1) if isinstance(km, (int, float)) else None
+        wp = e.get("waypoint")
+        if isinstance(wp, dict) and wp.get("name"):
+            stops.append({"name": wp["name"], "at": e.get("startsAt"), "km": km})
+        sc = e.get("schedule")
+        if isinstance(sc, dict):
+            types = [str(t).upper() for t in sc.get("scheduleTypes") or []]
+            kind = "DAILY_REST" if "DAILY_REST" in types else "BREAK" if "BREAK" in types else None
+            if kind:
+                pauses.append({
+                    "type":          kind,
+                    "at":            e.get("startsAt"),
+                    "duration_s":    int(sc.get("duration") or 0),
+                    "km":            km,
+                    "lat":           e.get("latitude"),
+                    "lng":           e.get("longitude"),
+                    "country":       e.get("countryCode"),
+                    "pendant_arret": "SERVICE" in types,
+                })
+    g = lambda k: int(rep.get(k) or 0)
+    return {
+        "start":     rep.get("startTime"),
+        "end":       rep.get("endTime"),
+        "driving_s": g("drivingTime"),
+        "break_s":   g("breakTime"),
+        "rest_s":    g("restTime"),
+        "service_s": g("serviceTime"),
+        "waiting_s": g("waitingTime"),
+        "travel_s":  int(ptv.get("travelTime") or 0),
+        "stops":     stops,
+        "pauses":    pauses[:30],
+    }
+
 
 def _route_payload(ptv: dict) -> dict:
     """Champs communs renvoyés par les deux endpoints de calcul."""
@@ -694,6 +770,9 @@ def _route_payload(ptv: dict) -> dict:
         "co2":             _extract_co2(ptv),
         "distance_km":     round(distance_m / 1000, 1),
         "duration_h":      round(duration_s / 3600, 2),
+        "duration_s":      int(duration_s or 0),
+        "eta":             _extract_eta(ptv),
+        "eta_err":         ptv.get("_eta_err"),
         "prix_peage":      round(_extract_toll(ptv), 2),
         "toll_by_country": _extract_toll_by_country(ptv),
         "km_by_country":   _extract_km_by_country(ptv),
@@ -828,7 +907,7 @@ async def _geocode(address: str) -> Optional[list]:
 async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool,
                     super_pref: bool = False, via_radius: Optional[int] = 5000,
                     traffic: bool = True, alternatives: bool = False,
-                    co2: bool = False) -> dict:
+                    co2: bool = False, eta: Optional[dict] = None) -> dict:
     """
     waypoints_list : "lat,lng" pour les points classiques,
                      "combinedTransport=..." pour une traversée imposée
@@ -847,6 +926,11 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
                      un trajet départ → arrivée sans étape ni traversée imposée.
     co2            : émissions CO2e (ISO 14083, consommation par défaut du
                      profil) pour un camion Euro 6, la norme de la flotte.
+    eta            : {"start_time", "team", "service_s"} ou None. Calcul POST avec
+                     les temps de conduite UE (règlement 561/2006, plusieurs jours,
+                     ou double équipage) : PTV ajoute pauses et repos journaliers à
+                     travelTime et renvoie l'heure d'arrivée à chaque étape.
+                     Si PTV refuse, calcul normal + "_eta_err" dans la réponse.
     Mode rapide (tout décoché) : requête identique à l'origine, aucun extra.
     Si PTV refuse les résultats en plus, on refait l'appel avec les résultats
     de base pour ne jamais bloquer le calcul.
@@ -869,18 +953,39 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
     if co2:
         query_params.append(("vehicle[emissionStandard]", "EURO_6"))
     dernier = len(waypoints_list) - 1
+    wps_get, wps_body = [], []      # même liste, en GET (texte) et en POST (JSON)
+    n_etape = 0
     for i, wp_str in enumerate(waypoints_list):
         if wp_str.startswith("combinedTransport="):
             if 0 < i < dernier:
-                query_params.append(("waypoints", wp_str))
+                wps_get.append(("waypoints", wp_str))
+                m = _CT_RE.match(wp_str)
+                if m:
+                    a, b, c, d = (float(x) for x in m.groups())
+                    wps_body.append({"combinedTransport": {
+                        "start":       {"latitude": a, "longitude": b},
+                        "destination": {"latitude": c, "longitude": d}}})
             continue
         parts = wp_str.split(",")
         # 6 décimales (≈ 10 cm) : même requête, même clé de cache
         lat, lng = round(float(parts[0].strip()), 6), round(float(parts[1].strip()), 6)
         if 0 < i < dernier and via_radius:
-            query_params.append(("waypoints", f"{lat},{lng};radius={int(via_radius)}"))
+            wps_get.append(("waypoints", f"{lat},{lng};radius={int(via_radius)}"))
+            wps_body.append({"manipulate": {"latitude": lat, "longitude": lng,
+                                            "radius": int(via_radius)}})
         else:
-            query_params.append(("waypoints", f"{lat},{lng}"))
+            wps_get.append(("waypoints", f"{lat},{lng}"))
+            on_road = {"latitude": lat, "longitude": lng}
+            if i == 0:
+                nom = "D"
+            elif i == dernier:
+                nom = "A"
+            else:
+                n_etape += 1
+                nom = f"E{n_etape}"
+                if eta and eta.get("service_s"):
+                    on_road["serviceTime"] = int(eta["service_s"])
+            wps_body.append({"name": nom, "onRoad": on_road})
     avoid = []
     if avoid_tolls or super_pref: avoid.append("TOLL")
     if avoid_highways:            avoid.append("HIGHWAYS")
@@ -890,7 +995,7 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
         query_params.append(("options[trafficMode]", "AVERAGE"))
 
     async def _get(results: list):
-        params = query_params + [("results", ",".join(results))]
+        params = query_params + wps_get + [("results", ",".join(results))]
         print(f"PTV QUERY: {len(waypoints_list)} pts, results={params[-1][1]}")
         t0 = time.perf_counter()
         r = await http().get(PTV_ROUTING_URL, headers={"apiKey": PTV_API_KEY},
@@ -899,14 +1004,45 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
               f"({r.http_version}, {len(r.content) // 1024} Ko)")
         return r
 
-    resp = await _get(base + extra)
-    if resp.status_code == 400 and extra:
-        print(f"PTV 400 avec {extra}, nouvel essai sans : {resp.text[:300]}")
-        resp = await _get(base)
+    async def _post(results: list):
+        params = query_params + [("results", ",".join(results))]
+        if eta.get("start_time"):
+            params.append(("options[startTime]", eta["start_time"]))
+        corps = {"waypoints": wps_body, "driver": {"workingHoursPreset": (
+            "EU_DRIVING_TIME_REGULATION_FOR_TEAM_AND_MULTIPLE_DAYS" if eta.get("team")
+            else "EU_DRIVING_TIME_REGULATION_FOR_MULTIPLE_DAYS")}}
+        print(f"PTV POST ETA: {len(wps_body)} pts, départ {eta.get('start_time')}, "
+              f"{'double équipage' if eta.get('team') else 'seul'}, results={params[-1][1]}")
+        t0 = time.perf_counter()
+        r = await http().post(PTV_ROUTING_URL, headers={"apiKey": PTV_API_KEY},
+                              params=params, json=corps, timeout=45)
+        print(f"PTV {r.status_code} en {(time.perf_counter() - t0) * 1000:.0f} ms "
+              f"({r.http_version}, {len(r.content) // 1024} Ko)")
+        return r
+
+    eta_err = None
+    resp = None
+    if eta:
+        sched = ["SCHEDULE_REPORT", "SCHEDULE_EVENTS"]
+        resp = await _post(base + sched + extra)
+        if resp.status_code == 400 and extra:
+            print(f"PTV 400 (ETA) avec {extra}, nouvel essai sans : {resp.text[:300]}")
+            resp = await _post(base + sched)
+        if resp.status_code != 200:
+            eta_err = f"PTV {resp.status_code} : {resp.text[:300]}"
+            print(f"PTV ETA refusé, calcul normal : {eta_err}")
+            resp = None
+    if resp is None:
+        resp = await _get(base + extra)
+        if resp.status_code == 400 and extra:
+            print(f"PTV 400 avec {extra}, nouvel essai sans : {resp.text[:300]}")
+            resp = await _get(base)
     if resp.status_code != 200:
         print(f"PTV ERROR {resp.status_code}: {resp.text[:1000]}")
         raise HTTPException(502, f"PTV error {resp.status_code}: {resp.text[:500]}")
     ptv = _loads(resp.content)
+    if eta_err:
+        ptv["_eta_err"] = eta_err
     # Trace de contrôle : forme réelle des événements trafic / restriction
     # et des variantes, pour vérifier la lecture dans les logs Render.
     if traffic or alternatives or co2:
@@ -925,12 +1061,12 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
 async def _compute_route(waypoints_list: list, avoid_tolls: bool, avoid_highways: bool,
                          super_pref: bool = False, via_radius: Optional[int] = 5000,
                          traffic: bool = True, alternatives: bool = False,
-                         co2: bool = False) -> dict:
+                         co2: bool = False, eta: Optional[dict] = None) -> dict:
     """_call_ptv + _route_payload, avec cache et fusion des demandes identiques
     simultanées (un seul appel PTV, tout le monde reçoit la même réponse).
     Renvoie une copie : les endpoints y ajoutent leurs champs."""
     key = json.dumps([waypoints_list, avoid_tolls, avoid_highways, super_pref,
-                      via_radius, traffic, alternatives, co2])
+                      via_radius, traffic, alternatives, co2, eta])
     hit = _cache_get(key)
     if hit is not None:
         print(f"CACHE ✓ {len(waypoints_list)} pts — {hit['distance_km']} km")
@@ -944,10 +1080,12 @@ async def _compute_route(waypoints_list: list, avoid_tolls: bool, avoid_highways
             t0 = time.perf_counter()
             ptv = await _call_ptv(waypoints_list, avoid_tolls, avoid_highways, super_pref,
                                   via_radius=via_radius, traffic=traffic,
-                                  alternatives=alternatives, co2=co2)
+                                  alternatives=alternatives, co2=co2, eta=eta)
             payload = _route_payload(ptv)
             payload["ptv_ms"] = round((time.perf_counter() - t0) * 1000)   # affiché dans la console de la carte
-            _cache_put(key, payload, CACHE_TTL_TRAFFIC if traffic else CACHE_TTL_STATIC)
+            # Une erreur ETA (PTV indisponible un instant) ne reste pas en cache longtemps
+            ttl = CACHE_TTL_TRAFFIC if (traffic or payload.get("eta_err")) else CACHE_TTL_STATIC
+            _cache_put(key, payload, ttl)
             fut.set_result(payload)
         except Exception as e:
             fut.set_exception(e)
@@ -1155,7 +1293,7 @@ async def recalculate(data: RouteRecalc):
     payload = await _compute_route(waypoints_list, data.avoid_tolls, data.avoid_highways,
                                    data.super_pref, via_radius=None if via else 5000,
                                    traffic=data.traffic, alternatives=data.alternatives,
-                                   co2=data.co2)
+                                   co2=data.co2, eta=_eta_opts(data))
     payload.update({
         "origin":         data.origin,
         "dest":           data.dest,
@@ -1177,7 +1315,8 @@ async def recalculate_drag(data: RecalcDragRequest, background: BackgroundTasks)
         # Points déplacés ou ajoutés sur la carte : la route doit passer dessus.
         payload = await _compute_route(waypoints_list, data.avoid_tolls, data.avoid_highways,
                                        via_radius=None, traffic=data.traffic,
-                                       alternatives=data.alternatives, co2=data.co2)
+                                       alternatives=data.alternatives, co2=data.co2,
+                                       eta=_eta_opts(data))
     except HTTPException:
         raise
     except Exception as e:

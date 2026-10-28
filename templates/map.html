@@ -181,7 +181,7 @@
         <h3>📍 {{ route.origin }} <br>🏁 {{ route.dest }}</h3>
         <div id="route-state" class="state-original">✅ Itinéraire original</div>
         <div class="stat-row">Distance <span class="badge badge-blue" id="dist">{{ route.distance_km }} km</span></div>
-        <div class="stat-row">Durée    <span class="badge"            id="dur" >{{ route.duration_h }} h</span></div>
+        <div class="stat-row">Durée    <span class="badge"            id="dur" >{{ "%d h %02d"|format(((route.duration_h or 0) * 60)|round|int // 60, ((route.duration_h or 0) * 60)|round|int % 60) }}</span></div>
         <div class="stat-row">Péage    <span class="badge"            id="toll">{{ route.prix_peage }} €</span></div>
 
         <div id="wp-container">
@@ -249,6 +249,11 @@
     <div id="map"></div>
 
     <script>
+        // Durées en heures et minutes : 7.66 h → « 7 h 40 »
+        function fmtH(h) {
+            const m = Math.round((Number(h) || 0) * 60);
+            return Math.floor(m / 60) ? `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}` : `${m} min`;
+        }
         const routeId   = "{{ route_id }}";
         const serverUrl = "{{ server_url }}";
 
@@ -701,7 +706,7 @@
                 if (resp.ok) {
                     const data = await resp.json();
                     document.getElementById('dist').textContent = data.distance_km + " km";
-                    document.getElementById('dur').textContent  = data.duration_h + " h";
+                    document.getElementById('dur').textContent  = fmtH(data.duration_h);
                     document.getElementById('toll').textContent = data.prix_peage + " €";
                 }
             } catch(e) {
@@ -743,7 +748,7 @@
                 });
                 const data = await resp.json();
                 document.getElementById('dist').innerText = data.distance_km + ' km';
-                document.getElementById('dur').innerText  = data.duration_h  + ' h';
+                document.getElementById('dur').innerText  = fmtH(data.duration_h);
                 document.getElementById('toll').innerText = data.prix_peage  + ' €';
                 geojsonCoords = data.polyline.map(c => [c[1], c[0]]);
                 map.getSource('routeSource').setData(buildGeoJSON(geojsonCoords));
