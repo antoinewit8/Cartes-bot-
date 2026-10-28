@@ -57,6 +57,7 @@ FIREBASE_URL   = os.environ.get("FIREBASE_URL", "").rstrip("/")
 
 PTV_ROUTING_URL  = "https://api.myptv.com/routing/v1/routes"
 PTV_GEOCODE_URL  = "https://api.myptv.com/geocoding/v1/locations/by-text"
+PTV_PLACES_URL   = "https://api.myptv.com/geocoding/v1/places/by-text"   # sociétés, commerces, services
 PTV_CT_URL       = "https://api.myptv.com/data/v1/combined-transports"
 
 # Rayon de recherche des lignes autour du port d'embarquement : 60 km couvre
@@ -1169,6 +1170,60 @@ async def api_geocode(q: str, country: str = ""):
     loc   = results[0]["referencePosition"]
     label = results[0].get("address", {}).get("formattedAddress", q)
     return {"lat": loc["latitude"], "lng": loc["longitude"], "label": label}
+
+
+# ── Sociétés et lieux par leur nom (PTV Places by Text) ───────────────────────
+# Pour la saisie de la Carte manuelle : « liprovit kampen » → la société, son adresse,
+# sa position. Cache 24 h : une même recherche ne repasse pas par PTV (transactions).
+_PLACES_CACHE: "OrderedDict[str, tuple]" = OrderedDict()
+_PLACES_TTL, _PLACES_MAX = 24 * 3600, 800
+
+
+def _place_compact(p: dict) -> Optional[dict]:
+    pos = p.get("referencePosition") or {}
+    lat, lng = pos.get("latitude"), pos.get("longitude")
+    if lat is None or lng is None:
+        return None
+    a = p.get("address") or {}
+    return {
+        "name": p.get("name") or "",
+        "lat": lat, "lng": lng,
+        "street": a.get("street") or "", "housenumber": a.get("houseNumber") or "",
+        "postcode": a.get("postalCode") or "", "city": a.get("city") or a.get("district") or "",
+        "region": a.get("province") or a.get("state") or "",
+        "country": a.get("countryName") or "", "cc": (a.get("countryCode") or "")[:2].upper(),
+        "label": p.get("formattedAddress") or a.get("formattedAddress") or "",
+        "categories": p.get("categoryIds") or [],
+    }
+
+
+@app.get("/api/places")
+async def api_places(q: str, country: str = "", limit: int = 6):
+    q = (q or "").strip()
+    if len(q) < 3:
+        return {"places": []}
+    cle = f"{country.upper()}|{q.lower()}"
+    hit = _PLACES_CACHE.get(cle)
+    if hit and time.time() - hit[0] < _PLACES_TTL:
+        _PLACES_CACHE.move_to_end(cle)
+        return {"places": hit[1][:limit], "cached": True}
+    t0 = time.perf_counter()
+    r = await http().get(PTV_PLACES_URL, headers={"apiKey": PTV_API_KEY}, timeout=10,
+                         params={"searchText": q, "countryFilter": country.strip() or COUNTRY_FILTER,
+                                 "language": "fr"})
+    print(f"PTV PLACES {r.status_code} en {(time.perf_counter() - t0) * 1000:.0f} ms : {q!r}")
+    if r.status_code != 200:
+        print(f"PTV PLACES erreur : {r.text[:400]}")
+        raise HTTPException(502, f"PTV places {r.status_code}: {r.text[:200]}")
+    data = _loads(r.content)
+    brut = data.get("places") or data.get("results") or data.get("locations") or []
+    if brut:
+        print(f"PTV PLACES exemple : {json.dumps(brut[0])[:500]}")
+    places = [x for x in (_place_compact(p) for p in brut if isinstance(p, dict)) if x]
+    _PLACES_CACHE[cle] = (time.time(), places)
+    while len(_PLACES_CACHE) > _PLACES_MAX:
+        _PLACES_CACHE.popitem(last=False)
+    return {"places": places[:limit]}
 
 
 # ── Lignes de ferry / navettes disponibles ───────────────────────────────────
