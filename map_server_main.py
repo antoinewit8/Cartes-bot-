@@ -291,6 +291,9 @@ class RouteRecalc(BaseModel):
     start_time:     Optional[str] = None   # "2026-10-28T08:30", heure locale du départ
     team:           bool = False    # double équipage (pas de pause, repos allongés)
     service_min:    int  = 0        # arrêt (chargement / déchargement) à chaque étape, en minutes
+    # Chauffeur déjà en service au départ : {"last_worked": "2026-10-28T08:45:00+01:00",
+    #  "amplitude_min", "conduite_min", "conduite_pause_min"} (None = chauffeur reposé)
+    logbook:        Optional[dict] = None
     # Envoyés par map.html : coordonnées exactes, prioritaires sur le géocodage
     origin_coords:  Optional[List[float]] = None
     dest_coords:    Optional[List[float]] = None
@@ -316,6 +319,9 @@ class RecalcDragRequest(BaseModel):
     start_time:     Optional[str] = None   # "2026-10-28T08:30", heure locale du départ
     team:           bool = False    # double équipage (pas de pause, repos allongés)
     service_min:    int  = 0        # arrêt (chargement / déchargement) à chaque étape, en minutes
+    # Chauffeur déjà en service au départ : {"last_worked": "2026-10-28T08:45:00+01:00",
+    #  "amplitude_min", "conduite_min", "conduite_pause_min"} (None = chauffeur reposé)
+    logbook:        Optional[dict] = None
 
 class SaveReferenceRequest(BaseModel):
     origin:    str
@@ -704,7 +710,36 @@ def _eta_opts(data) -> Optional[dict]:
     if st and len(st) == 16:
         st += ":00"
     return {"start_time": st or None, "team": bool(data.team),
-            "service_s": max(0, min(int(data.service_min or 0), 24 * 60)) * 60}
+            "service_s": max(0, min(int(data.service_min or 0), 24 * 60)) * 60,
+            "logbook": _logbook(getattr(data, "logbook", None))}
+
+
+def _logbook(lb) -> Optional[dict]:
+    """Journal du chauffeur déjà en service → workLogbook PTV (secondes).
+    Contraintes PTV : conduite depuis la pause ≤ conduite du jour ≤ amplitude."""
+    if not isinstance(lb, dict):
+        return None
+    lw = str(lb.get("last_worked") or "").strip()
+    if not _START_RE.match(lw) or not re.search(r"([+-]\d{2}:\d{2}|Z)$", lw):
+        raise HTTPException(400, f"Fin de dernier travail illisible : {lw!r} (attendu avec décalage UTC)")
+
+    def mn(k):
+        try:
+            return max(0, min(int(round(float(lb.get(k) or 0))), 24 * 60))
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"Valeur illisible pour {k} : {lb.get(k)!r}")
+
+    ampl, cond = mn("amplitude_min"), mn("conduite_min")
+    pause = mn("conduite_pause_min") if lb.get("conduite_pause_min") not in (None, "") else min(cond, 270)
+    cond = min(cond, ampl) if ampl else cond
+    pause = min(pause, cond)
+    ampl = max(ampl, cond)
+    if not (ampl or cond):
+        return None
+    return {"lastTimeTheDriverWorked": lw,
+            "accumulatedDrivingTimeSinceLastBreak": pause * 60,
+            "accumulatedDrivingTimeSinceLastDailyRest": cond * 60,
+            "accumulatedTravelTimeSinceLastDailyRest": ampl * 60}
 
 
 def _extract_eta(ptv: dict) -> Optional[dict]:
@@ -1011,8 +1046,11 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
         corps = {"waypoints": wps_body, "driver": {"workingHoursPreset": (
             "EU_DRIVING_TIME_REGULATION_FOR_TEAM_AND_MULTIPLE_DAYS" if eta.get("team")
             else "EU_DRIVING_TIME_REGULATION_FOR_MULTIPLE_DAYS")}}
+        if eta.get("logbook"):
+            corps["driver"]["workLogbook"] = eta["logbook"]
         print(f"PTV POST ETA: {len(wps_body)} pts, départ {eta.get('start_time')}, "
-              f"{'double équipage' if eta.get('team') else 'seul'}, results={params[-1][1]}")
+              f"{'double équipage' if eta.get('team') else 'seul'}"
+              f"{', journal ' + json.dumps(eta['logbook']) if eta.get('logbook') else ''}, results={params[-1][1]}")
         t0 = time.perf_counter()
         r = await http().post(PTV_ROUTING_URL, headers={"apiKey": PTV_API_KEY},
                               params=params, json=corps, timeout=45)
