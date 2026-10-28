@@ -1147,6 +1147,36 @@ async def health():
 
 
 # ── Géocodage (recherche adresse depuis la carte) ────────────────────────────
+# ── Lien Google Maps raccourci (maps.app.goo.gl) → lien complet ──────────────
+# La carte lit les coordonnées dans le lien complet ; les liens courts sont
+# résolus ici (le navigateur ne peut pas suivre la redirection : CORS).
+_GMAPS_HOTES = re.compile(r"^(maps\.app\.goo\.gl|goo\.gl|g\.co|maps\.google\.[a-z.]+|(www\.)?google\.[a-z.]+)$", re.I)
+
+
+@app.get("/api/resolve_link")
+async def resolve_link(url: str):
+    try:
+        cur = httpx.URL(url.strip())
+    except Exception:
+        raise HTTPException(400, "Lien illisible")
+    for _ in range(6):
+        if cur.scheme not in ("http", "https") or not _GMAPS_HOTES.match(cur.host or ""):
+            raise HTTPException(400, "Seuls les liens Google Maps sont acceptés")
+        # Lien complet avec des coordonnées : inutile d'aller plus loin
+        if re.search(r"(@-?\d+\.\d+,-?\d+\.\d+|!3d-?\d+\.\d+!4d-?\d+\.\d+|[?&](q|query|ll)=-?\d+\.\d+,)", str(cur)):
+            break
+        r = await http().get(cur, follow_redirects=False, timeout=10,
+                             headers={"User-Agent": "Mozilla/5.0 (CB Transport Hub)"})
+        loc = r.headers.get("location")
+        if not loc:
+            break
+        nxt = cur.join(loc)
+        # Page de consentement : le vrai lien est dans « continue »
+        cont = nxt.params.get("continue")
+        cur = httpx.URL(cont) if cont else nxt
+    return {"url": str(cur)}
+
+
 @app.get("/api/geocode")
 async def api_geocode(q: str, country: str = ""):
     """`country` optionnel : codes ISO séparés par des virgules (ex. "NL,DK")."""
