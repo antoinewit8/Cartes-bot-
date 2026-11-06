@@ -408,6 +408,20 @@ def _extract_toll_by_country(ptv: dict) -> list:
                   key=lambda x: -x["price"])
 
 
+def _toll_by_country_route(ptv: dict, split: dict) -> list:
+    """Péage routier par pays : ventilation PTV moins les traversées de chaque pays."""
+    lignes = _extract_toll_by_country(ptv)
+    moins = split.get("ferry_by_country") or {}
+    if not moins:
+        return lignes
+    out = []
+    for l in lignes:
+        v = round(max(l["price"] - moins.get(l["country"], 0.0), 0.0), 2)
+        if v > 0:
+            out.append({"country": l["country"], "price": v})
+    return sorted(out, key=lambda x: -x["price"])
+
+
 def _extract_km_by_country(ptv: dict) -> list:
     """
     Kilomètres parcourus par pays : [{"country": "BE", "km": 168.2}, ...].
@@ -543,10 +557,85 @@ def _extract_ct_warnings(ptv: dict) -> list:
 
 
 def _extract_toll(ptv: dict) -> float:
-    toll_data = ptv.get("toll", {}).get("costs", {})
+    """Total PTV (péages routiers + traversées payantes)."""
+    toll_data = (ptv.get("toll") or {}).get("costs") or {}
     if isinstance(toll_data, dict):
-        return toll_data.get("convertedPrice", {}).get("price", 0)
-    return 0
+        return float((toll_data.get("convertedPrice") or {}).get("price") or 0)
+    return 0.0
+
+
+# Noms qui trahissent une traversée même si PTV ne type pas la section FERRY
+# (Eurotunnel / Le Shuttle peut être rangé en TUNNEL).
+_TRAVERSEE_RE = re.compile(
+    r"eurotunnel|shuttle|channel tunnel|ferry|ferries|f[aä]hre|veer|bac\b|"
+    r"p&o|dfds|irish ferries|stena|brittany|condor|color line|tt-line|finnlines|"
+    r"moby|grimaldi|tirrenia|corsica|gnv|balearia|trasmed|scandlines", re.I)
+
+
+def _cout_section(sec: dict):
+    """Prix retenu par PTV pour une section (1re ligne de costs), en EUR si converti."""
+    lignes = sec.get("costs") or []
+    if not lignes or not isinstance(lignes[0], dict):
+        return None
+    l0 = lignes[0]
+    cp = l0.get("convertedPrice")
+    if isinstance(cp, dict) and isinstance(cp.get("price"), (int, float)):
+        return float(cp["price"])
+    if isinstance(l0.get("price"), (int, float)):
+        return float(l0["price"])
+    return None
+
+
+def _extract_toll_split(ptv: dict) -> dict:
+    """
+    Sépare le montant PTV en péage routier et traversées.
+    PTV inclut le prix des ferries dans toll.costs (sections tollRoadType = FERRY).
+    Retour : {total, peage, traversee, traversee_detail[], ferry_by_country{}, ok}
+    ok = False si PTV n'a pas renvoyé les sections (on garde alors le total en péage).
+    """
+    toll = (ptv or {}).get("toll") or {}
+    total = _extract_toll(ptv)
+    sections = toll.get("sections")
+    systems = toll.get("systems") or []
+    if not isinstance(sections, list):
+        return {"total": total, "peage": total, "traversee": None,
+                "traversee_detail": [], "ferry_by_country": {}, "ok": False}
+
+    ferry, detail, par_pays = 0.0, [], {}
+    for sec in sections:
+        if not isinstance(sec, dict):
+            continue
+        prix = _cout_section(sec)
+        if not prix:
+            continue
+        type_ = str(sec.get("tollRoadType") or "").upper()
+        nom = sec.get("displayName") or ""
+        idx = sec.get("tollSystemIndex")
+        systeme = ""
+        if isinstance(idx, int) and 0 <= idx < len(systems) and isinstance(systems[idx], dict):
+            systeme = " ".join(filter(None, (systems[idx].get("name"),
+                                             systems[idx].get("operatorName"))))
+        if type_ == "FERRY" or (type_ != "CITY" and _TRAVERSEE_RE.search(f"{nom} {systeme}")):
+            cc = sec.get("countryCode") or "??"
+            ferry += prix
+            par_pays[cc] = par_pays.get(cc, 0.0) + prix
+            detail.append({"name": nom or systeme or "Traversée", "country": cc,
+                           "type": type_, "price": round(prix, 2)})
+
+    ferry = min(ferry, total) if total else ferry
+    if not ferry and any(isinstance(e, dict) and "combinedTransport" in e
+                         for e in ptv.get("events") or []):
+        # Traversée sur le trajet mais aucune section reconnue : trace pour ajuster.
+        print("PTV TRAVERSÉE sans section reconnue, sections : " + json.dumps(
+            [{"t": x.get("tollRoadType"), "n": x.get("displayName"), "cc": x.get("countryCode"),
+              "p": _cout_section(x)} for x in sections if isinstance(x, dict)],
+            ensure_ascii=False)[:600])
+    if ferry:
+        print(f"PTV TRAVERSÉE dans le péage : {ferry:.2f} € sur {total:.2f} € "
+              f"({json.dumps(detail, ensure_ascii=False)[:400]})")
+    return {"total": round(total, 2), "peage": round(max(total - ferry, 0.0), 2),
+            "traversee": round(ferry, 2), "traversee_detail": detail,
+            "ferry_by_country": par_pays, "ok": True}
 
 def _decode_polyline(encoded: str) -> list:
     coords, index, lat, lng = [], 0, 0, 0
@@ -798,6 +887,7 @@ def _route_payload(ptv: dict) -> dict:
     """Champs communs renvoyés par les deux endpoints de calcul."""
     distance_m, duration_s = _extract_distance_duration(ptv)
     crossings = _extract_crossings(ptv)
+    split = _extract_toll_split(ptv)
     return {
         "alerts":          _extract_alerts(ptv),
         "violated":        bool(ptv.get("violated")),
@@ -808,8 +898,11 @@ def _route_payload(ptv: dict) -> dict:
         "duration_s":      int(duration_s or 0),
         "eta":             _extract_eta(ptv),
         "eta_err":         ptv.get("_eta_err"),
-        "prix_peage":      round(_extract_toll(ptv), 2),
-        "toll_by_country": _extract_toll_by_country(ptv),
+        "prix_peage":      split["peage"],          # péages routiers seuls
+        "prix_traversee":  split["traversee"],      # ferries / navettes (None = inconnu)
+        "prix_total":      split["total"],          # montant PTV complet
+        "traversee_detail": split["traversee_detail"],
+        "toll_by_country": _toll_by_country_route(ptv, split),
         "km_by_country":   _extract_km_by_country(ptv),
         "crossings":       crossings,
         "ferry_km":        round(sum(c["distance_km"] for c in crossings), 1),
@@ -970,9 +1063,11 @@ async def _call_ptv(waypoints_list: list, avoid_tolls: bool, avoid_highways: boo
     Si PTV refuse les résultats en plus, on refait l'appel avec les résultats
     de base pour ne jamais bloquer le calcul.
     """
-    # TOLL_SECTIONS retiré : le détail par pays vient de toll.costs.countries
-    # (validé le 16/09/2026) ; les sections alourdissaient calcul et réponse.
-    base = ["POLYLINE", "TOLL_COSTS", "BORDER_EVENTS",
+    # TOLL_SECTIONS + TOLL_SYSTEMS : PTV compte le prix des ferries (et de
+    # certaines navettes) dans toll.costs ; les sections (tollRoadType FERRY)
+    # permettent de séparer péage routier et traversée. Elles ne sont pas
+    # renvoyées au navigateur.
+    base = ["POLYLINE", "TOLL_COSTS", "TOLL_SECTIONS", "TOLL_SYSTEMS", "BORDER_EVENTS",
             "WAYPOINT_EVENTS", "COMBINED_TRANSPORT_EVENTS"]
     extra = []
     if traffic:
@@ -1373,6 +1468,7 @@ async def recalculate_drag(data: RecalcDragRequest, background: BackgroundTasks)
             "distance_km":      payload["distance_km"],
             "duration_h":       payload["duration_h"],
             "prix_peage":       payload["prix_peage"],
+            "prix_traversee":   payload["prix_traversee"],
             "toll_by_country":  payload["toll_by_country"],
             "km_by_country":    payload["km_by_country"],
             "crossings":        payload["crossings"],
